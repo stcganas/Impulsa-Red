@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -12,12 +13,13 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    console.log("Login useEffect triggered:", { loading, user });
+    console.log("Login state check:", { loading, hasUser: !!user, role: user?.role });
     if (!loading && user) {
-      console.log("Redirecting user based on role:", user.role);
       if (user.role === 'admin') {
+        console.log("Redirigiendo a /admin");
         navigate("/admin");
       } else {
+        console.log("Redirigiendo a /dashboard");
         navigate("/dashboard");
       }
     }
@@ -27,29 +29,23 @@ export default function Login() {
     e.preventDefault();
     setError("");
     setIsLoading(true);
-    console.log("Attempting login for:", email);
+    console.log("Iniciando login para:", email);
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      const data = await response.json();
-      console.log("Login response:", response.status, data);
-
-      if (!response.ok) {
-        throw new Error(data.error || "Error al iniciar sesión");
+      if (signInError) {
+        console.error("Error de Supabase Auth:", signInError);
+        throw new Error(signInError.message === 'Invalid login credentials' 
+          ? 'Credenciales inválidas' 
+          : signInError.message);
       }
-
-      // Store token and user data
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
       
-      console.log("Calling refreshUser...");
+      console.log("Login exitoso, forzando refreshUser...", data.user?.id);
       await refreshUser();
-      console.log("refreshUser completed.");
     } catch (err: any) {
       console.error("Login error:", err);
       setError(err.message);
@@ -121,6 +117,17 @@ export default function Login() {
           >
             <span>{isLoading ? "Iniciando..." : "Iniciar Sesión"}</span>
             {!isLoading && <ArrowRight className="w-5 h-5" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setEmail("ericcharris432@gmail.com");
+              setPassword("password123");
+            }}
+            className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-300 text-slate-500 font-medium hover:border-blue-400 hover:text-blue-600 transition-all"
+          >
+            Usar cuenta de prueba (Demo)
           </button>
         </form>
 

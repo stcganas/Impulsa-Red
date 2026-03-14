@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, User, ArrowRight } from "lucide-react";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../lib/supabase";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -34,29 +35,68 @@ export default function Register() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, referrerCode }),
+      // 1. Sign up with Supabase Auth
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+          }
+        }
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Error al registrarse");
+      if (signUpError) {
+        throw new Error(signUpError.message);
       }
 
-      // Store token and user data
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-      
-      await refreshUser();
-      
-      if (data.user.role === 'admin') {
-        navigate("/admin");
-      } else {
-        navigate("/plan-selection");
+      if (!authData.user) {
+        throw new Error("Error al crear el usuario");
       }
+
+      // 2. Create profile in 'users' table
+      // We do this manually to ensure the profile exists even if the trigger is missing
+      const { error: profileError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: authData.user.email,
+          name: name,
+          role: 'user',
+          plan: 'Gratis',
+          level: 1,
+          xp: 0,
+          percentage: 10,
+          referral_code: name.substring(0, 3).toUpperCase() + Math.floor(1000 + Math.random() * 9000)
+        });
+
+      if (profileError && profileError.code !== '23505') { // Ignore if already exists
+        console.error("Error creating profile:", profileError);
+        // We don't throw here because the user is already created in Auth
+      }
+
+      // 3. Process referral if provided
+      if (referrerCode) {
+        // We call the backend to process the referral securely since it requires
+        // looking up another user's ID and inserting into the referrals table
+        try {
+          await fetch("/api/referrals/process", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${authData.session?.access_token}`
+            },
+            body: JSON.stringify({ referrerCode }),
+          });
+        } catch (refErr) {
+          console.error("Error processing referral:", refErr);
+          // We don't block the registration if referral fails
+        }
+      }
+      
+      // The UserContext will automatically detect the auth state change
+      navigate("/plan-selection");
+      
     } catch (err: any) {
       setError(err.message);
     } finally {

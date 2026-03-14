@@ -3,9 +3,10 @@ import { motion } from "motion/react";
 import { Users, DollarSign, TrendingUp, UserPlus, Copy, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../lib/supabase";
 
 interface Referral {
-  id: number;
+  id: string;
   name: string;
   plan: string;
   created_at: string;
@@ -19,15 +20,52 @@ export default function Referrals() {
   const [copied, setCopied] = useState(false);
 
   const fetchReferrals = async () => {
+    if (!user?.id) return;
+    
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/referrals", {
-        headers: { Authorization: `Bearer ${token}` },
+      // Fetch referrals where the current user is the referrer
+      const { data: referralData, error: referralError } = await supabase
+        .from('referrals')
+        .select(`
+          created_at,
+          referred_id,
+          users!referrals_referred_id_fkey (
+            id,
+            name,
+            plan
+          )
+        `)
+        .eq('referrer_id', user.id);
+
+      if (referralError) throw referralError;
+
+      // Fetch commissions for these referrals
+      const { data: txData, error: txError } = await supabase
+        .from('transactions')
+        .select('referred_id, amount')
+        .eq('user_id', user.id)
+        .eq('type', 'referral_commission')
+        .eq('status', 'completed');
+
+      if (txError) throw txError;
+
+      // Combine data
+      const formattedReferrals: Referral[] = (referralData || []).map((ref: any) => {
+        const referredUser = ref.users;
+        const commissions = (txData || [])
+          .filter(tx => tx.referred_id === referredUser.id)
+          .reduce((sum, tx) => sum + (tx.amount || 0), 0);
+
+        return {
+          id: referredUser.id,
+          name: referredUser.name,
+          plan: referredUser.plan,
+          created_at: ref.created_at,
+          total_commission: commissions
+        };
       });
-      if (response.ok) {
-        const data = await response.json();
-        setReferrals(data);
-      }
+
+      setReferrals(formattedReferrals);
     } catch (error) {
       console.error("Error fetching referrals:", error);
     } finally {
@@ -37,7 +75,7 @@ export default function Referrals() {
 
   useEffect(() => {
     fetchReferrals();
-  }, []);
+  }, [user?.id]);
 
   const totalMonthly = referrals.reduce(
     (acc, curr) => acc + (curr.total_commission || 0),

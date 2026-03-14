@@ -13,6 +13,8 @@ import {
 import { motion } from "motion/react";
 import { useUser } from "../contexts/UserContext";
 
+import NotificationCenter from "../components/NotificationCenter";
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, loading, logout } = useUser();
@@ -63,11 +65,8 @@ export default function Dashboard() {
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[120%] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none" />
         <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-emerald-600/20 blur-[60px] rounded-full pointer-events-none" />
 
-        <div className="absolute top-6 right-6 z-50 flex gap-3">
-          <button className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center relative hover:bg-white/20 transition-colors">
-            <Bell className="w-5 h-5 text-white" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-900" />
-          </button>
+        <div className="absolute top-6 right-6 z-50 flex gap-3 items-center">
+          <NotificationCenter />
           <button 
             onClick={handleLogout}
             className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/20 text-red-100 border border-red-500/30 text-sm font-medium hover:bg-red-500 hover:text-white transition-all shadow-lg"

@@ -15,7 +15,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
-import { fetchWithAuth } from "../lib/api";
+import { supabase } from "../lib/supabase";
 
 interface Message {
   id: string;
@@ -69,9 +69,25 @@ export default function Mentor() {
     setLoading(true);
 
     try {
-      const response = await fetchWithAuth("/api/mentor/chat", {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const response = await fetch("/api/mentor/chat", {
         method: "POST",
-        body: JSON.stringify({ message: input }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ 
+          message: input,
+          context: {
+            name: user?.name,
+            level: user?.level,
+            plan: user?.plan,
+            balance: user?.wallet_balance,
+            referralsCount: user?.referrals_count
+          }
+        }),
       });
 
       if (response && response.ok) {
@@ -85,9 +101,21 @@ export default function Mentor() {
         };
 
         setMessages(prev => [...prev, botMsg]);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error del servidor: ${response.status}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Mentor Error:", error);
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        text: error.message === 'Failed to fetch' 
+          ? "No pude conectarme con el servidor. Por favor, verifica tu conexión o intenta más tarde."
+          : "Lo siento, tuve un problema al procesar tu mensaje. Intenta de nuevo.",
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setLoading(false);
     }

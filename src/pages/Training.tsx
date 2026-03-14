@@ -15,110 +15,107 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../lib/supabase";
 
-const COURSES = [
-  {
-    id: 1,
-    title: "Marketing de Referidos 101",
-    description: "Aprende las bases para construir una red sólida desde cero.",
-    duration: "45 min",
-    lessons: 8,
-    rating: 4.8,
-    category: "Marketing",
-    image: "https://picsum.photos/seed/marketing/400/250",
-    xp: 150
-  },
-  {
-    id: 2,
-    title: "Ventas de Alto Impacto",
-    description: "Técnicas de persuasión y cierre para planes Élite.",
-    duration: "1h 20min",
-    lessons: 12,
-    rating: 4.9,
-    category: "Ventas",
-    image: "https://picsum.photos/seed/sales/400/250",
-    xp: 200
-  },
-  {
-    id: 3,
-    title: "Marca Personal en Redes",
-    description: "Cómo atraer prospectos calificados usando Instagram y TikTok.",
-    duration: "55 min",
-    lessons: 10,
-    rating: 4.7,
-    category: "Redes Sociales",
-    image: "https://picsum.photos/seed/social/400/250",
-    xp: 150
-  },
-  {
-    id: 4,
-    title: "Liderazgo de Equipos",
-    description: "Gestiona y motiva a tus referidos para maximizar ganancias.",
-    duration: "1h 10min",
-    lessons: 9,
-    rating: 5.0,
-    category: "Liderazgo",
-    image: "https://picsum.photos/seed/leadership/400/250",
-    xp: 250
-  }
-];
+interface Course {
+  id: number;
+  title: string;
+  description: string;
+  videoUrl: string;
+  xp: number;
+  category?: string;
+  duration?: string;
+  lessons?: number;
+  rating?: number;
+  image?: string;
+}
 
 export default function Training() {
   const { user, refreshUser } = useUser();
+  const [courses, setCourses] = useState<Course[]>([]);
   const [completedCourses, setCompletedCourses] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [levelUpData, setLevelUpData] = useState<any>(null);
   const [completingId, setCompletingId] = useState<number | null>(null);
 
-  const fetchCompletedCourses = async () => {
+  const fetchData = async () => {
+    if (!user?.id) return;
+    
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/training/completed", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCompletedCourses(data);
+      // Fetch courses from settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'courses_list')
+        .single();
+        
+      if (!settingsError && settingsData) {
+        // Add default values for UI if missing in DB
+        const dbCourses = (settingsData.value as Course[]).map(c => ({
+          ...c,
+          category: c.category || "General",
+          duration: c.duration || "45 min",
+          lessons: c.lessons || 1,
+          rating: c.rating || 5.0,
+          image: c.image || `https://picsum.photos/seed/${c.id}/400/250`
+        }));
+        setCourses(dbCourses);
       }
+
+      // Fetch completed courses
+      const { data: completedData, error: completedError } = await supabase
+        .from('user_courses')
+        .select('course_id')
+        .eq('user_id', user.id);
+        
+      if (completedError) throw completedError;
+      
+      setCompletedCourses(completedData.map(d => d.course_id));
     } catch (error) {
-      console.error("Error fetching completed courses:", error);
+      console.error("Error fetching training data:", error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCompletedCourses();
-  }, []);
+    fetchData();
+  }, [user?.id]);
 
   const completeCourse = async (courseId: number, xp: number) => {
-    if (completedCourses.includes(courseId)) return;
+    if (!user?.id || completedCourses.includes(courseId)) return;
     
     setCompletingId(courseId);
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/training/complete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ courseId, xp }),
-      });
+      // 1. Insert into user_courses
+      const { error: insertError } = await supabase
+        .from('user_courses')
+        .insert({ user_id: user.id, course_id: courseId });
+        
+      if (insertError) throw insertError;
 
-      if (response.ok) {
-        const result = await response.json();
-        setCompletedCourses([...completedCourses, courseId]);
-        
-        if (result.leveledUp) {
-          setLevelUpData(result);
-          setShowLevelUp(true);
-          setTimeout(() => setShowLevelUp(false), 4000);
-        }
-        
-        await refreshUser();
+      // 2. Update user XP and Level
+      const newXp = (user.xp || 0) + xp;
+      const newLevel = Math.floor(newXp / 1000) + 1;
+      const leveledUp = newLevel > (user.level || 1);
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ xp: newXp, level: newLevel })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setCompletedCourses([...completedCourses, courseId]);
+      
+      if (leveledUp) {
+        setLevelUpData({ newLevel, xpGained: xp });
+        setShowLevelUp(true);
+        setTimeout(() => setShowLevelUp(false), 4000);
       }
+      
+      await refreshUser();
     } catch (error) {
       console.error("Error completing course:", error);
     } finally {
@@ -216,7 +213,7 @@ export default function Training() {
           Cursos Destacados
         </h2>
 
-        {COURSES.map((course, idx) => (
+        {courses.map((course, idx) => (
           <motion.div
             key={course.id}
             initial={{ opacity: 0, y: 20 }}

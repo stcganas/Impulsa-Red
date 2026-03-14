@@ -3,10 +3,10 @@ import { motion, AnimatePresence } from "motion/react";
 import { Check, Calendar, Star, Trophy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
-import { fetchWithAuth } from "../lib/api";
+import { supabase } from "../lib/supabase";
 
 interface Task {
-  id: number;
+  id: string;
   day: string;
   name: string;
   xp: number;
@@ -21,12 +21,35 @@ export default function Tasks() {
   const [levelUpData, setLevelUpData] = useState<any>(null);
 
   const fetchTasks = async () => {
+    if (!user?.id) return;
     try {
-      const response = await fetchWithAuth("/api/tasks");
-      if (response && response.ok) {
-        const data = await response.json();
-        setTasks(data.map((t: any) => ({ ...t, completed: !!t.completed })));
-      }
+      // Get all tasks
+      const { data: allTasks, error: tasksError } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('id');
+        
+      if (tasksError) throw tasksError;
+
+      // Get user's completed tasks
+      const { data: userTasks, error: userTasksError } = await supabase
+        .from('user_tasks')
+        .select('task_id')
+        .eq('user_id', user.id);
+        
+      if (userTasksError) throw userTasksError;
+
+      const completedTaskIds = new Set(userTasks?.map(ut => ut.task_id));
+
+      const formattedTasks = (allTasks || []).map(t => ({
+        id: t.id,
+        day: t.day,
+        name: t.name,
+        xp: t.xp,
+        completed: completedTaskIds.has(t.id)
+      }));
+
+      setTasks(formattedTasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
     } finally {
@@ -36,37 +59,56 @@ export default function Tasks() {
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [user?.id]);
 
   const completedCount = tasks.filter((t) => t.completed).length;
   const totalXP = completedCount * 100; // This is just for the weekly progress UI
   const progress = (completedCount / tasks.length) * 100;
 
-  const toggleTask = async (id: number, alreadyCompleted: boolean) => {
-    if (alreadyCompleted) return; // Don't allow un-completing for now as per logic
+  const toggleTask = async (id: string, alreadyCompleted: boolean) => {
+    if (alreadyCompleted || !user?.id) return;
 
     try {
-      const response = await fetchWithAuth("/api/tasks/complete", {
-        method: "POST",
-        body: JSON.stringify({ taskId: id }),
-      });
+      // 1. Insert into user_tasks
+      const { error: insertError } = await supabase
+        .from('user_tasks')
+        .insert({ user_id: user.id, task_id: id });
 
-      if (response && response.ok) {
-        const result = await response.json();
-        
-        // Update local task state
-        setTasks(tasks.map(t => t.id === id ? { ...t, completed: true } : t));
-        
-        // Handle level up
-        if (result.leveledUp) {
-          setLevelUpData(result);
-          setShowLevelUp(true);
-          setTimeout(() => setShowLevelUp(false), 4000);
-        }
-        
-        // Refresh global user data
-        await refreshUser();
+      if (insertError) throw insertError;
+
+      // 2. Get task XP
+      const task = tasks.find(t => t.id === id);
+      const xpGained = task?.xp || 100;
+
+      // 3. Update user XP
+      const newXp = (user.xp || 0) + xpGained;
+      let newLevel = user.level || 1;
+      let leveledUp = false;
+
+      if (newXp >= newLevel * 1000) {
+        newLevel += 1;
+        leveledUp = true;
       }
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ xp: newXp, level: newLevel })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+      
+      // Update local task state
+      setTasks(tasks.map(t => t.id === id ? { ...t, completed: true } : t));
+      
+      // Handle level up
+      if (leveledUp) {
+        setLevelUpData({ newLevel, xpGained });
+        setShowLevelUp(true);
+        setTimeout(() => setShowLevelUp(false), 4000);
+      }
+      
+      // Refresh global user data
+      await refreshUser();
     } catch (error) {
       console.error("Error completing task:", error);
     }

@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 
-interface User {
-  id: number;
+export interface User {
+  id: string;
   name: string;
   email: string;
   plan: string;
@@ -11,6 +12,10 @@ interface User {
   totalEarned: number;
   badge?: string;
   role: 'user' | 'admin';
+  referral_code?: string;
+  phone?: string;
+  address?: string;
+  avatar_url?: string;
 }
 
 interface UserContextType {
@@ -27,66 +32,107 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshPromise = useRef<Promise<void> | null>(null);
 
   const logout = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-      } catch (err) {
-        console.error('Error logging out on server', err);
-      }
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Error logging out', err);
     }
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
     setUser(null);
   }, []);
 
   const refreshUser = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
+    if (refreshPromise.current) {
+      console.log("Ya hay un refreshUser en curso, esperando...");
+      return refreshPromise.current;
     }
 
-    try {
-      const response = await fetch('/api/user/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`
+    refreshPromise.current = (async () => {
+      setLoading(true);
+      setError(null);
+      console.log("Iniciando refreshUser...");
+      
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error("Error de sesión:", sessionError);
+          throw sessionError;
         }
-      });
+        
+        if (!session?.user) {
+          console.log("No hay sesión activa");
+          setUser(null);
+          return;
+        }
 
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-      } else if (response.status === 401 || response.status === 403) {
-        await logout();
-        throw new Error('Sesión expirada o inválida');
-      } else {
-        const errText = 'Error al cargar datos del usuario';
-        setError(errText);
-        throw new Error(errText);
+        console.log("Sesión encontrada para:", session.user.email);
+
+        // Fetch user profile from our backend API to bypass RLS recursion issues
+        const profileResponse = await fetch('/api/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        });
+
+        if (!profileResponse.ok) {
+          const profileError = await profileResponse.json().catch(() => ({}));
+          console.error("Error al obtener perfil desde API:", profileError);
+          
+          // Fallback retry logic if needed, but the API should be more reliable
+          throw new Error(profileError.error || 'Error al obtener el perfil');
+        }
+
+        const profile = await profileResponse.json();
+        console.log("Perfil obtenido exitosamente desde API:", profile.role);
+
+        // Calculate total earned from transactions (only referral commissions)
+        const { data: txs } = await supabase
+          .from('transactions')
+          .select('amount')
+          .eq('user_id', session.user.id)
+          .eq('type', 'referral_commission')
+          .eq('status', 'completed');
+          
+        const totalEarned = txs?.reduce((sum, tx) => sum + (tx.amount || 0), 0) || 0;
+        
+        setUser({ ...profile, totalEarned } as User);
+      } catch (err: any) {
+        console.error("Error crítico en refreshUser:", err);
+        // Don't show "Lock broken" as a user-facing error if possible
+        if (err.message?.includes('steal')) {
+          console.warn("Refresh lock stolen, ignoring this specific error.");
+          return;
+        }
+        setError(err.message || 'Error de conexión');
+        setUser(null);
+      } finally {
+        console.log("Finalizando refreshUser, loading=false");
+        setLoading(false);
+        refreshPromise.current = null;
       }
-    } catch (err: any) {
-      const errMsg = err.message || 'Error de conexión';
-      setError(errMsg);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [logout]);
+    })();
+
+    return refreshPromise.current;
+  }, []);
 
   useEffect(() => {
-    refreshUser().catch(console.error);
+    refreshUser();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        refreshUser();
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [refreshUser]);
 
   return (

@@ -9,16 +9,19 @@ import {
   Loader2,
   ChevronRight,
   AlertCircle,
-  Check
+  Check,
+  Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../lib/supabase";
 
 interface Transaction {
-  id: number;
+  id: string;
   amount: number;
   commission: number;
   type: 'plan_purchase' | 'referral_commission' | 'withdrawal';
+  status: 'pending' | 'completed' | 'rejected';
   created_at: string;
   referred_name?: string;
 }
@@ -33,15 +36,37 @@ export default function Wallet() {
   const [success, setSuccess] = useState("");
 
   const fetchTransactions = async () => {
+    if (!user?.id) return;
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/transactions", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setTransactions(data);
-      }
+      const { data, error } = await supabase
+        .from('transactions')
+        .select(`
+          id,
+          amount,
+          commission,
+          type,
+          status,
+          created_at,
+          users!transactions_referred_id_fkey (
+            name
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedTransactions = (data || []).map((t: any) => ({
+        id: t.id,
+        amount: t.amount,
+        commission: t.commission || 0,
+        type: t.type,
+        status: t.status,
+        created_at: t.created_at,
+        referred_name: t.users?.name
+      }));
+
+      setTransactions(formattedTransactions);
     } catch (error) {
       console.error("Error fetching transactions:", error);
     } finally {
@@ -51,14 +76,14 @@ export default function Wallet() {
 
   useEffect(() => {
     fetchTransactions();
-  }, []);
+  }, [user?.id]);
 
   const totalEarnings = transactions
     .filter(t => t.type === 'referral_commission')
-    .reduce((acc, curr) => acc + curr.commission, 0);
+    .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalWithdrawals = transactions
-    .filter(t => t.type === 'withdrawal')
+    .filter(t => t.type === 'withdrawal' && t.status !== 'rejected')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const balance = totalEarnings - totalWithdrawals;
@@ -79,28 +104,28 @@ export default function Wallet() {
       return;
     }
 
+    if (!user?.id) return;
+
     setWithdrawing(true);
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/withdraw", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}` 
-        },
-        body: JSON.stringify({ amount }),
-      });
+      const { error } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: user.id,
+          amount: amount,
+          commission: 0,
+          type: 'withdrawal',
+          status: 'pending'
+        });
 
-      const data = await response.json();
-      if (response.ok) {
-        setSuccess("Retiro solicitado con éxito");
-        setWithdrawAmount("");
-        await fetchTransactions();
-        await refreshUser();
-      } else {
-        setError(data.error || "Error al procesar el retiro");
-      }
+      if (error) throw error;
+
+      setSuccess("Retiro solicitado con éxito");
+      setWithdrawAmount("");
+      await fetchTransactions();
+      await refreshUser();
     } catch (error) {
+      console.error("Error processing withdrawal:", error);
       setError("Error de conexión");
     } finally {
       setWithdrawing(false);
@@ -242,21 +267,36 @@ export default function Wallet() {
                   {t.type === 'referral_commission' ? `Comisión: ${t.referred_name}` : 
                    t.type === 'withdrawal' ? 'Retiro de Saldo' : `Compra de Plan: ${t.amount}`}
                 </p>
-                <p className="text-xs text-slate-400 font-medium">
-                  {new Date(t.created_at).toLocaleDateString("es-CO", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-slate-400 font-medium">
+                    {new Date(t.created_at).toLocaleDateString("es-CO", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  {t.type === 'withdrawal' && (
+                    <span className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
+                      t.status === 'pending' ? "bg-amber-100 text-amber-700" :
+                      t.status === 'rejected' ? "bg-red-100 text-red-700" :
+                      "bg-emerald-100 text-emerald-700"
+                    )}>
+                      {t.status === 'pending' ? 'Pendiente' : t.status === 'rejected' ? 'Rechazado' : 'Completado'}
+                    </span>
+                  )}
+                </div>
               </div>
               
               <div className="text-right">
                 <p className={cn(
                   "font-black text-lg",
                   t.type === 'referral_commission' ? "text-emerald-600" : 
-                  t.type === 'withdrawal' ? "text-red-600" : "text-slate-900"
+                  t.type === 'withdrawal' ? "text-red-600" : "text-slate-900",
+                  t.status === 'rejected' && "opacity-50 line-through"
                 )}>
                   {t.type === 'referral_commission' ? `+$${t.commission.toLocaleString("es-CO")}` : 
                    `-$${t.amount.toLocaleString("es-CO")}`}
                 </p>
-                <p className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Completado</p>
+                {t.type !== 'withdrawal' && (
+                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Completado</p>
+                )}
               </div>
             </motion.div>
           ))

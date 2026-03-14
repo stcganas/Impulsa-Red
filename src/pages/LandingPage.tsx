@@ -11,9 +11,11 @@ import {
   Target 
 } from 'lucide-react';
 import { useUser } from '../contexts/UserContext';
+import { useSettings } from '../contexts/SettingsContext';
 
 const LandingPage = () => {
   const { user, loading } = useUser();
+  const { settings } = useSettings();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,10 +37,16 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
-                <TrendingUp className="text-white w-5 h-5" />
-              </div>
-              <span className="text-xl font-bold tracking-tight text-slate-900">ImpulsaRed</span>
+              {settings.app_logo ? (
+                <img src={settings.app_logo} alt="ImpulsaRed Logo" className="h-10 object-contain" />
+              ) : (
+                <>
+                  <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+                    <TrendingUp className="text-white w-5 h-5" />
+                  </div>
+                  <span className="text-xl font-bold tracking-tight text-slate-900">ImpulsaRed</span>
+                </>
+              )}
             </div>
             <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
               <a href="#features" className="hover:text-emerald-600 transition-colors">Características</a>
