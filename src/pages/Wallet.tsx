@@ -79,7 +79,7 @@ export default function Wallet() {
   }, [user?.id]);
 
   const totalEarnings = transactions
-    .filter(t => t.type === 'referral_commission')
+    .filter(t => t.type === 'referral_commission' && t.status === 'completed')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalWithdrawals = transactions
@@ -108,25 +108,31 @@ export default function Wallet() {
 
     setWithdrawing(true);
     try {
-      const { error } = await supabase
-        .from('transactions')
-        .insert({
-          user_id: user.id,
-          amount: amount,
-          commission: 0,
-          type: 'withdrawal',
-          status: 'pending'
-        });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
 
-      if (error) throw error;
+      const response = await fetch('/api/withdraw/request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ amount })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Error al procesar el retiro");
+      }
 
       setSuccess("Retiro solicitado con éxito");
       setWithdrawAmount("");
       await fetchTransactions();
       await refreshUser();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing withdrawal:", error);
-      setError("Error de conexión");
+      setError(error.message || "Error de conexión");
     } finally {
       setWithdrawing(false);
     }
@@ -134,16 +140,16 @@ export default function Wallet() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] flex items-center justify-center">
         <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] pb-24 relative overflow-hidden">
       {/* Header */}
-      <div className="bg-slate-900 text-white pt-12 pb-24 px-6 rounded-b-[40px] shadow-xl relative">
+      <div className="bg-slate-900 dark:bg-[#111] text-white pt-12 pb-24 px-6 rounded-b-[40px] shadow-xl relative transition-colors duration-300">
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[120%] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none" />
 
         <div className="relative z-10">
@@ -157,27 +163,27 @@ export default function Wallet() {
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-200/50 border border-slate-100 relative overflow-hidden"
+          className="bg-white dark:bg-[#111] rounded-3xl p-8 shadow-xl shadow-slate-200/50 dark:shadow-black/20 border border-slate-100 dark:border-white/5 relative overflow-hidden"
         >
           <div className="absolute top-0 right-0 p-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
               <WalletIcon className="w-6 h-6 text-blue-600" />
             </div>
           </div>
           
-          <p className="text-slate-500 font-bold text-sm uppercase tracking-widest mb-2">Saldo Disponible</p>
-          <div className="text-5xl font-black text-slate-900 tracking-tight mb-6">
+          <p className="text-slate-500 dark:text-slate-400 font-bold text-sm uppercase tracking-widest mb-2">Saldo Disponible</p>
+          <div className="text-5xl font-black text-slate-900 dark:text-white tracking-tight mb-6">
             ${balance.toLocaleString("es-CO")}
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-100">
+          <div className="grid grid-cols-2 gap-4 pt-6 border-t border-slate-100 dark:border-white/5">
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Ganado</p>
               <p className="text-emerald-600 font-bold text-lg">+${totalEarnings.toLocaleString("es-CO")}</p>
             </div>
             <div className="text-right">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Total Retirado</p>
-              <p className="text-slate-900 font-bold text-lg">-${totalWithdrawals.toLocaleString("es-CO")}</p>
+              <p className="text-slate-900 dark:text-slate-200 font-bold text-lg">-${totalWithdrawals.toLocaleString("es-CO")}</p>
             </div>
           </div>
         </motion.div>
@@ -185,41 +191,41 @@ export default function Wallet() {
 
       {/* Withdraw Form */}
       <div className="px-6 mb-8">
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-          <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+        <div className="bg-white dark:bg-[#111] rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-white/5">
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
             <ArrowUpRight className="w-5 h-5 text-blue-600" />
             Solicitar Retiro
           </h2>
           
           <form onSubmit={handleWithdraw} className="space-y-4">
             {error && (
-              <div className="p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-xs flex items-center gap-2">
+              <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 {error}
               </div>
             )}
             {success && (
-              <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl text-xs flex items-center gap-2">
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl text-xs flex items-center gap-2">
                 <Check className="w-4 h-4" />
                 {success}
               </div>
             )}
             
             <div className="relative">
-              <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-600" />
               <input
                 type="number"
                 value={withdrawAmount}
                 onChange={(e) => setWithdrawAmount(e.target.value)}
                 placeholder="Monto a retirar (Min. $10.000)"
-                className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
+                className="w-full pl-12 pr-4 py-4 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
               />
             </div>
             
             <button
               type="submit"
               disabled={withdrawing || !withdrawAmount}
-              className="w-full py-4 rounded-2xl bg-slate-900 text-white font-bold shadow-lg hover:bg-slate-800 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-4 rounded-2xl bg-slate-900 dark:bg-blue-600 text-white font-bold shadow-lg hover:bg-slate-800 dark:hover:bg-blue-700 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {withdrawing ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -234,15 +240,15 @@ export default function Wallet() {
       {/* Transactions List */}
       <div className="px-6 space-y-4">
         <div className="flex justify-between items-center mb-2">
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <History className="w-5 h-5 text-slate-400" />
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <History className="w-5 h-5 text-slate-400 dark:text-slate-600" />
             Historial
           </h2>
         </div>
 
         {transactions.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-200">
-            <p className="text-slate-400 font-medium">No hay transacciones aún.</p>
+          <div className="text-center py-12 bg-white dark:bg-[#111] rounded-3xl border border-dashed border-slate-200 dark:border-white/10">
+            <p className="text-slate-400 dark:text-slate-600 font-medium">No hay transacciones aún.</p>
           </div>
         ) : (
           transactions.map((t, idx) => (
@@ -251,32 +257,32 @@ export default function Wallet() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-4"
+              className="bg-white dark:bg-[#111] rounded-2xl p-4 shadow-sm border border-slate-100 dark:border-white/5 flex items-center gap-4"
             >
               <div className={cn(
                 "w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
-                t.type === 'referral_commission' ? "bg-emerald-50 text-emerald-600" : 
-                t.type === 'withdrawal' ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600"
+                t.type === 'referral_commission' ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600" : 
+                t.type === 'withdrawal' ? "bg-red-50 dark:bg-red-500/10 text-red-600" : "bg-blue-50 dark:bg-blue-500/10 text-blue-600"
               )}>
                 {t.type === 'referral_commission' ? <ArrowDownLeft className="w-6 h-6" /> : 
                  t.type === 'withdrawal' ? <ArrowUpRight className="w-6 h-6" /> : <WalletIcon className="w-6 h-6" />}
               </div>
               
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-900 truncate">
+                <p className="font-bold text-slate-900 dark:text-slate-200 truncate">
                   {t.type === 'referral_commission' ? `Comisión: ${t.referred_name}` : 
                    t.type === 'withdrawal' ? 'Retiro de Saldo' : `Compra de Plan: ${t.amount}`}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-xs text-slate-400 font-medium">
+                  <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
                     {new Date(t.created_at).toLocaleDateString("es-CO", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                   </p>
                   {t.type === 'withdrawal' && (
                     <span className={cn(
                       "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full",
-                      t.status === 'pending' ? "bg-amber-100 text-amber-700" :
-                      t.status === 'rejected' ? "bg-red-100 text-red-700" :
-                      "bg-emerald-100 text-emerald-700"
+                      t.status === 'pending' ? "bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-500" :
+                      t.status === 'rejected' ? "bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-500" :
+                      "bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-500"
                     )}>
                       {t.status === 'pending' ? 'Pendiente' : t.status === 'rejected' ? 'Rechazado' : 'Completado'}
                     </span>
@@ -288,14 +294,14 @@ export default function Wallet() {
                 <p className={cn(
                   "font-black text-lg",
                   t.type === 'referral_commission' ? "text-emerald-600" : 
-                  t.type === 'withdrawal' ? "text-red-600" : "text-slate-900",
+                  t.type === 'withdrawal' ? "text-red-600" : "text-slate-900 dark:text-white",
                   t.status === 'rejected' && "opacity-50 line-through"
                 )}>
                   {t.type === 'referral_commission' ? `+$${t.commission.toLocaleString("es-CO")}` : 
                    `-$${t.amount.toLocaleString("es-CO")}`}
                 </p>
                 {t.type !== 'withdrawal' && (
-                  <p className="text-[10px] font-bold text-slate-300 uppercase tracking-tighter">Completado</p>
+                  <p className="text-[10px] font-bold text-slate-300 dark:text-slate-600 uppercase tracking-tighter">Completado</p>
                 )}
               </div>
             </motion.div>

@@ -32,18 +32,16 @@ export default function TransactionManagement() {
 
   const fetchTransactions = async () => {
     try {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select(`
-          *,
-          users!transactions_user_id_fkey (
-            name,
-            email
-          )
-        `)
-        .order('created_at', { ascending: false });
-        
-      if (error) throw error;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await fetch('/api/admin/transactions', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+
+      if (!response.ok) throw new Error('Error fetching transactions');
+      
+      const data = await response.json();
       setTransactions(data || []);
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -177,8 +175,8 @@ export default function TransactionManagement() {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold">Gestión de Transacciones</h2>
-          <p className="text-slate-400 text-sm">Administra compras, comisiones y retiros.</p>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Gestión de Transacciones</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm">Administra compras, comisiones y retiros.</p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
@@ -189,16 +187,16 @@ export default function TransactionManagement() {
               placeholder="Buscar usuario..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-[#111] border border-white/10 rounded-xl text-sm focus:outline-none focus:border-emerald-500/50"
+              className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:outline-none focus:border-emerald-500/50 text-slate-900 dark:text-white"
             />
           </div>
           
-          <div className="flex items-center gap-2 bg-[#111] border border-white/10 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2">
             <Filter className="w-4 h-4 text-slate-500" />
             <select 
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="bg-transparent text-sm outline-none text-slate-300"
+              className="bg-transparent text-sm outline-none text-slate-700 dark:text-slate-300"
             >
               <option value="all">Todos los tipos</option>
               <option value="plan_purchase">Compras</option>
@@ -210,7 +208,7 @@ export default function TransactionManagement() {
           <select 
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-[#111] border border-white/10 rounded-xl px-3 py-2 text-sm outline-none text-slate-300"
+            className="bg-white dark:bg-[#111] border border-slate-200 dark:border-white/10 rounded-xl px-3 py-2 text-sm outline-none text-slate-700 dark:text-slate-300"
           >
             <option value="all">Todos los estados</option>
             <option value="pending">Pendientes</option>
@@ -220,10 +218,10 @@ export default function TransactionManagement() {
         </div>
       </div>
 
-      <div className="bg-[#111] rounded-2xl border border-white/5 overflow-hidden">
+      <div className="bg-white dark:bg-[#111] rounded-2xl border border-slate-200 dark:border-white/5 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-white/5 text-slate-400">
+            <thead className="bg-slate-50 dark:bg-white/5 text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="p-4 font-medium">Fecha</th>
                 <th className="p-4 font-medium">Usuario</th>
@@ -233,25 +231,25 @@ export default function TransactionManagement() {
                 <th className="p-4 font-medium text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-slate-100 dark:divide-white/5">
               {filteredTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-500">
+                  <td colSpan={6} className="p-8 text-center text-slate-500 dark:text-slate-400">
                     No se encontraron transacciones.
                   </td>
                 </tr>
               ) : (
                 filteredTransactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 text-slate-400">
+                  <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                    <td className="p-4 text-slate-500 dark:text-slate-400">
                       {new Date(tx.created_at).toLocaleDateString()} {new Date(tx.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </td>
                     <td className="p-4">
-                      <p className="font-medium text-white">{tx.users?.name || 'Usuario Desconocido'}</p>
-                      <p className="text-xs text-slate-500">{tx.users?.email}</p>
+                      <p className="font-medium text-slate-900 dark:text-white">{tx.users?.name || 'Usuario Desconocido'}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-500">{tx.users?.email}</p>
                     </td>
                     <td className="p-4">
-                      <span className="text-slate-300">{getTypeLabel(tx.type)}</span>
+                      <span className="text-slate-600 dark:text-slate-300">{getTypeLabel(tx.type)}</span>
                     </td>
                     <td className="p-4 font-bold text-emerald-500">
                       ${tx.amount.toLocaleString('es-CO')}

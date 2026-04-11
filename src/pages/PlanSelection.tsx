@@ -4,6 +4,7 @@ import { Check, Crown, ArrowRight, X, Upload, Loader2, DollarSign, CreditCard } 
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { useSettings } from "../contexts/SettingsContext";
 import { supabase } from "../lib/supabase";
 
 const plans = [
@@ -79,6 +80,7 @@ const plans = [
 export default function PlanSelection() {
   const navigate = useNavigate();
   const { user, refreshUser } = useUser();
+  const { settings } = useSettings();
   const [selectedPlan, setSelectedPlan] = useState<typeof plans[0] | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -128,15 +130,24 @@ export default function PlanSelection() {
       const fileExt = receiptFile.name.split('.').pop();
       const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
       
-      const { error: uploadError } = await supabase.storage
-        .from('receipts')
-        .upload(fileName, receiptFile);
+      const uploadResponse = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          bucket: 'receipts',
+          fileName,
+          base64Data: receiptPreview,
+          contentType: receiptFile.type
+        })
+      });
 
-      if (uploadError) throw uploadError;
+      const uploadResult = await uploadResponse.json();
+      if (!uploadResponse.ok) throw new Error(uploadResult.error || 'Error uploading receipt');
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('receipts')
-        .getPublicUrl(fileName);
+      const publicUrl = uploadResult.publicUrl;
 
       // 2. Call API
       const response = await fetch('/api/plans/purchase', {
@@ -168,56 +179,56 @@ export default function PlanSelection() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-12">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] pb-12 transition-colors duration-300">
       {/* Payment Modal */}
       {isModalOpen && selectedPlan && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md">
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-white rounded-[32px] p-8 w-full max-w-lg shadow-2xl relative overflow-hidden"
+            className="bg-white dark:bg-[#111] rounded-[32px] p-8 w-full max-w-lg shadow-2xl relative overflow-hidden"
           >
             <button 
               onClick={() => setIsModalOpen(false)}
-              className="absolute top-6 right-6 p-2 hover:bg-slate-100 rounded-full transition-colors"
+              className="absolute top-6 right-6 p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-full transition-colors"
             >
-              <X className="w-6 h-6 text-slate-400" />
+              <X className="w-6 h-6 text-slate-400 dark:text-slate-600" />
             </button>
 
             <div className="flex items-center gap-4 mb-6">
-              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", selectedPlan.color)}>
-                <CreditCard className={cn("w-8 h-8", selectedPlan.textColor)} />
+              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", selectedPlan.color, selectedPlan.id === 'basic' && 'dark:bg-slate-800', selectedPlan.id === 'advanced' && 'dark:bg-blue-500/10', selectedPlan.id === 'pro' && 'dark:bg-emerald-500/10', selectedPlan.id === 'elite' && 'dark:from-amber-500/20 dark:to-amber-500/10')}>
+                <CreditCard className={cn("w-8 h-8", selectedPlan.textColor, selectedPlan.id === 'basic' && 'dark:text-slate-400', selectedPlan.id === 'advanced' && 'dark:text-blue-400', selectedPlan.id === 'pro' && 'dark:text-emerald-400', selectedPlan.id === 'elite' && 'dark:text-amber-400')} />
               </div>
               <div>
-                <h3 className="text-2xl font-bold text-slate-900">Pagar Plan {selectedPlan.name}</h3>
-                <p className="text-slate-500 font-medium">Monto a transferir: <span className="text-slate-900 font-bold">{selectedPlan.price} COP</span></p>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Pagar Plan {selectedPlan.name}</h3>
+                <p className="text-slate-500 dark:text-slate-400 font-medium">Monto a transferir: <span className="text-slate-900 dark:text-white font-bold">{selectedPlan.price} COP</span></p>
               </div>
             </div>
 
-            <div className="bg-slate-50 rounded-2xl p-6 mb-8 border border-slate-100">
-              <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Datos de Transferencia</h4>
+            <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-6 mb-8 border border-slate-100 dark:border-white/10">
+              <h4 className="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">Datos de Transferencia</h4>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Banco:</span>
-                  <span className="text-slate-900 font-bold">Bancolombia</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Banco:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">Bancolombia</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Tipo de cuenta:</span>
-                  <span className="text-slate-900 font-bold">Ahorros</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Tipo de cuenta:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">Ahorros</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Número:</span>
-                  <span className="text-slate-900 font-bold">123-456789-01</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Número:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">123-456789-01</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600 font-medium">Titular:</span>
-                  <span className="text-slate-900 font-bold">ImpulsaRed S.A.S</span>
+                  <span className="text-slate-600 dark:text-slate-400 font-medium">Titular:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">{settings.app_name || "ImpulsaRed"} S.A.S</span>
                 </div>
               </div>
             </div>
 
             <div className="space-y-4">
-              <p className="text-sm font-bold text-slate-700">Sube tu comprobante de pago:</p>
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Sube tu comprobante de pago:</p>
               
               <input 
                 type="file" 
@@ -230,15 +241,15 @@ export default function PlanSelection() {
               {!receiptPreview ? (
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full py-8 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-blue-400 hover:bg-blue-50 transition-all group"
+                  className="w-full py-8 border-2 border-dashed border-slate-200 dark:border-white/10 rounded-2xl flex flex-col items-center justify-center gap-3 hover:border-blue-400 dark:hover:border-blue-500/50 hover:bg-blue-50 dark:hover:bg-blue-500/5 transition-all group"
                 >
-                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                    <Upload className="w-6 h-6 text-slate-400 group-hover:text-blue-600" />
+                  <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-white/5 flex items-center justify-center group-hover:bg-blue-100 dark:group-hover:bg-blue-500/20 transition-colors">
+                    <Upload className="w-6 h-6 text-slate-400 dark:text-slate-600 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                   </div>
-                  <span className="text-sm font-bold text-slate-500 group-hover:text-blue-600">Haz clic para subir imagen</span>
+                  <span className="text-sm font-bold text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400">Haz clic para subir imagen</span>
                 </button>
               ) : (
-                <div className="relative rounded-2xl overflow-hidden border border-slate-200 aspect-video bg-slate-100">
+                <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 aspect-video bg-slate-100 dark:bg-white/5">
                   <img src={receiptPreview} alt="Receipt Preview" className="w-full h-full object-contain" />
                   <button 
                     onClick={() => { setReceiptFile(null); setReceiptPreview(null); }}
@@ -271,14 +282,14 @@ export default function PlanSelection() {
         </div>
       )}
 
-      <div className="bg-slate-900 text-white pt-16 pb-24 px-6 rounded-b-[40px] shadow-xl relative overflow-hidden">
+      <div className="bg-slate-900 dark:bg-[#111] text-white pt-16 pb-24 px-6 rounded-b-[40px] shadow-xl relative overflow-hidden transition-colors duration-300">
         <div className="absolute top-[-50%] right-[-20%] w-[80%] h-[150%] bg-blue-500/20 blur-[100px] rounded-full pointer-events-none" />
 
         <div className="relative z-10">
           <h1 className="text-3xl font-bold mb-3 tracking-tight">
             Elige tu plan
           </h1>
-          <p className="text-slate-300 text-lg leading-relaxed">
+          <p className="text-slate-300 dark:text-slate-400 text-lg leading-relaxed">
             Selecciona el punto de partida para tu crecimiento financiero. Todos
             los planes llegan al 70% en el Nivel 100.
           </p>
@@ -292,13 +303,17 @@ export default function PlanSelection() {
             className={cn(
               "rounded-3xl p-6 shadow-xl transition-transform active:scale-[0.98]",
               plan.color,
+              plan.id === 'basic' && 'dark:bg-slate-800',
+              plan.id === 'advanced' && 'dark:bg-blue-500/10',
+              plan.id === 'pro' && 'dark:bg-emerald-500/10',
+              plan.id === 'elite' && 'dark:from-amber-500/20 dark:to-amber-500/10',
               plan.isPremium
-                ? "border-2 border-amber-300 shadow-amber-500/20"
-                : "border border-white/50 shadow-slate-200/50",
+                ? "border-2 border-amber-300 dark:border-amber-500/30 shadow-amber-500/20 dark:shadow-amber-500/5"
+                : "border border-white/50 dark:border-white/5 shadow-slate-200/50 dark:shadow-black/20",
             )}
           >
             {plan.isPremium && (
-              <div className="flex items-center gap-2 text-amber-700 font-bold text-sm uppercase tracking-wider mb-4">
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold text-sm uppercase tracking-wider mb-4">
                 <Crown className="w-5 h-5" />
                 <span>Recomendado</span>
               </div>
@@ -306,33 +321,33 @@ export default function PlanSelection() {
 
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h2 className={cn("text-2xl font-bold mb-1", plan.textColor)}>
+                <h2 className={cn("text-2xl font-bold mb-1", plan.textColor, plan.id === 'basic' && 'dark:text-slate-300', plan.id === 'advanced' && 'dark:text-blue-400', plan.id === 'pro' && 'dark:text-emerald-400', plan.id === 'elite' && 'dark:text-amber-400')}>
                   {plan.name}
                 </h2>
-                <div className="text-3xl font-black tracking-tight">
+                <div className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
                   {plan.price}
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-1">
+                <div className="text-sm font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1">
                   Comisión Base
                 </div>
-                <div className={cn("text-3xl font-black", plan.textColor)}>
+                <div className={cn("text-3xl font-black", plan.textColor, plan.id === 'basic' && 'dark:text-slate-300', plan.id === 'advanced' && 'dark:text-blue-400', plan.id === 'pro' && 'dark:text-emerald-400', plan.id === 'elite' && 'dark:text-amber-400')}>
                   {plan.baseCommission}
                 </div>
               </div>
             </div>
 
-            <div className="bg-white/60 rounded-2xl p-4 mb-6 backdrop-blur-sm">
+            <div className="bg-white/60 dark:bg-black/20 rounded-2xl p-4 mb-6 backdrop-blur-sm">
               <div className="flex justify-between items-center mb-2">
-                <span className="text-slate-600 font-medium text-sm">
+                <span className="text-slate-600 dark:text-slate-400 font-medium text-sm">
                   Incremento por nivel
                 </span>
-                <span className="font-bold text-slate-900">
+                <span className="font-bold text-slate-900 dark:text-white">
                   +{plan.increment}
                 </span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2 mb-1 overflow-hidden">
+              <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-2 mb-1 overflow-hidden">
                 <div
                   className={cn(
                     "h-full rounded-full",
@@ -341,7 +356,7 @@ export default function PlanSelection() {
                   style={{ width: plan.baseCommission }}
                 />
               </div>
-              <div className="flex justify-between text-xs text-slate-500 font-medium">
+              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-500 font-medium">
                 <span>Nivel 1: {plan.baseCommission}</span>
                 <span>Nivel 100: 70%</span>
               </div>
@@ -354,13 +369,13 @@ export default function PlanSelection() {
                     className={cn(
                       "mt-0.5 rounded-full p-0.5",
                       plan.isPremium
-                        ? "bg-amber-200 text-amber-700"
-                        : "bg-white text-blue-600",
+                        ? "bg-amber-200 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                        : "bg-white dark:bg-white/10 text-blue-600 dark:text-blue-400",
                     )}
                   >
                     <Check className="w-4 h-4" />
                   </div>
-                  <span className="text-slate-700 font-medium leading-tight">
+                  <span className="text-slate-700 dark:text-slate-300 font-medium leading-tight">
                     {feature}
                   </span>
                 </li>
@@ -372,6 +387,7 @@ export default function PlanSelection() {
               className={cn(
                 "w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2",
                 plan.buttonColor,
+                plan.id === 'basic' && 'dark:bg-blue-600 dark:hover:bg-blue-700'
               )}
             >
               <span>Elegir {plan.name}</span>

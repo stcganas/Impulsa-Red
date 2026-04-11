@@ -3,7 +3,7 @@ import { Bell, X, Check, Info, AlertTriangle, AlertCircle, Loader2 } from 'lucid
 import { supabase } from '../lib/supabase';
 import { useUser } from '../contexts/UserContext';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface Notification {
   id: string;

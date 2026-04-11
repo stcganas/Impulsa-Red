@@ -2,7 +2,10 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { useUser } from "../contexts/UserContext";
+import Logo from "../components/Logo";
 import { supabase } from "../lib/supabase";
+
+import { TaskEngine } from "../utils/TaskEngine";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -45,7 +48,24 @@ export default function Login() {
       }
       
       console.log("Login exitoso, forzando refreshUser...", data.user?.id);
-      await refreshUser();
+      const updatedUser = await refreshUser();
+      
+      // Trigger LOGIN_STREAK event
+      await TaskEngine.triggerEvent('LOGIN_STREAK', 1);
+
+      // Manual redirection as fallback
+      if (data.user) {
+        // We can't easily get the role from data.user, so we wait for refreshUser
+        // or we can just let the useEffect handle it, but let's add a small delay and check
+        setTimeout(() => {
+          if (window.location.pathname === '/login') {
+            // If still on login, force redirect based on what we know
+            // (Admin email check as a quick fallback if profile is slow)
+            if (email === 'ericcharris432@gmail.com') navigate('/admin');
+            else navigate('/dashboard');
+          }
+        }, 1000);
+      }
     } catch (err: any) {
       console.error("Login error:", err);
       setError(err.message);
@@ -55,10 +75,11 @@ export default function Login() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-900 px-6 py-12">
+    <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0a0a0a] text-slate-900 dark:text-white px-6 py-12">
       <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-3">
+        <div className="mb-10 text-center flex flex-col items-center">
+          <Logo className="mb-8" size="xl" />
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-white mb-3">
             Bienvenido de nuevo
           </h1>
           <p className="text-slate-500 text-lg">
@@ -78,7 +99,7 @@ export default function Login() {
               <input
                 type="email"
                 placeholder="Correo electrónico"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -89,7 +110,7 @@ export default function Login() {
               <input
                 type="password"
                 placeholder="Contraseña"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required

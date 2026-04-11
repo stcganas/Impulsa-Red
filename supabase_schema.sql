@@ -103,3 +103,26 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own notifications" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can update their own notifications" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+
+-- 9. Crear tabla 'tickets'
+CREATE TABLE IF NOT EXISTS public.tickets (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    subject text NOT NULL,
+    message text NOT NULL,
+    status text NOT NULL DEFAULT 'open', -- 'open', 'in_progress', 'resolved', 'closed'
+    priority text NOT NULL DEFAULT 'medium', -- 'low', 'medium', 'high'
+    admin_reply text,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view their own tickets" ON public.tickets FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert their own tickets" ON public.tickets FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Admins can view all tickets" ON public.tickets FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin')
+);
+CREATE POLICY "Admins can update all tickets" ON public.tickets FOR UPDATE USING (
+  EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin')
+);

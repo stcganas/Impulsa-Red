@@ -1,8 +1,11 @@
 import React from 'react';
 import { Hammer, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useSettings } from '../contexts/SettingsContext';
 
 export default function MaintenancePage() {
+  const { settings } = useSettings();
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-center">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -40,7 +43,7 @@ export default function MaintenancePage() {
         </div>
 
         <div className="mt-12 text-slate-600 text-sm font-medium">
-          &copy; 2026 ImpulsaRed. Todos los derechos reservados.
+          &copy; 2026 {settings.app_name || "ImpulsaRed"}. Todos los derechos reservados.
         </div>
       </motion.div>
     </div>

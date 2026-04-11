@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
 import { supabase } from "../lib/supabase";
+import { calculatePercentage } from "../utils/levelUtils";
 
 interface Course {
   id: number;
@@ -29,6 +30,8 @@ interface Course {
   rating?: number;
   image?: string;
 }
+
+import { TaskEngine } from "../utils/TaskEngine";
 
 export default function Training() {
   const { user, refreshUser } = useUser();
@@ -88,29 +91,32 @@ export default function Training() {
     
     setCompletingId(courseId);
     try {
-      // 1. Insert into user_courses
-      const { error: insertError } = await supabase
-        .from('user_courses')
-        .insert({ user_id: user.id, course_id: courseId });
-        
-      if (insertError) throw insertError;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
 
-      // 2. Update user XP and Level
-      const newXp = (user.xp || 0) + xp;
-      const newLevel = Math.floor(newXp / 1000) + 1;
-      const leveledUp = newLevel > (user.level || 1);
+      const response = await fetch(`/api/courses/complete/${courseId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ xpReward: xp })
+      });
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ xp: newXp, level: newLevel })
-        .eq('id', user.id);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error al completar el curso');
+      }
 
-      if (updateError) throw updateError;
+      const result = await response.json();
 
       setCompletedCourses([...completedCourses, courseId]);
       
-      if (leveledUp) {
-        setLevelUpData({ newLevel, xpGained: xp });
+      // Trigger COURSE_COMPLETED event
+      await TaskEngine.triggerEvent('COURSE_COMPLETED', 1, { course_id: courseId.toString() });
+
+      if (result.leveledUp) {
+        setLevelUpData({ newLevel: result.newLevel, xpGained: result.xpGained });
         setShowLevelUp(true);
         setTimeout(() => setShowLevelUp(false), 4000);
       }
@@ -118,6 +124,7 @@ export default function Training() {
       await refreshUser();
     } catch (error) {
       console.error("Error completing course:", error);
+      alert(error instanceof Error ? error.message : "Error al completar el curso");
     } finally {
       setCompletingId(null);
     }
@@ -125,14 +132,14 @@ export default function Training() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+      <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] flex items-center justify-center transition-colors duration-300">
+        <Loader2 className="w-10 h-10 text-blue-600 dark:text-blue-400 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] pb-24 relative overflow-hidden transition-colors duration-300">
       {/* Level Up Animation Overlay */}
       <AnimatePresence>
         {showLevelUp && (
@@ -165,27 +172,27 @@ export default function Training() {
       </AnimatePresence>
 
       {/* Header */}
-      <div className="bg-slate-900 text-white pt-12 pb-24 px-6 rounded-b-[40px] shadow-xl relative">
+      <div className="bg-slate-900 dark:bg-[#111] text-white pt-12 pb-24 px-6 rounded-b-[40px] shadow-xl relative transition-colors duration-300">
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[120%] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none" />
 
         <div className="relative z-10">
           <h1 className="text-3xl font-bold tracking-tight mb-2">Capacitación</h1>
-          <p className="text-slate-400 text-lg">Domina el arte del crecimiento financiero.</p>
+          <p className="text-slate-400 dark:text-slate-500 text-lg">Domina el arte del crecimiento financiero.</p>
         </div>
       </div>
 
       {/* Search & Filter */}
       <div className="px-6 -mt-8 relative z-20 mb-8">
-        <div className="bg-white rounded-2xl p-2 shadow-lg border border-slate-100 flex items-center gap-2">
+        <div className="bg-white dark:bg-[#111] rounded-2xl p-2 shadow-lg border border-slate-100 dark:border-white/5 flex items-center gap-2">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-600" />
             <input 
               type="text" 
               placeholder="Buscar cursos..." 
-              className="w-full pl-10 pr-4 py-3 bg-transparent focus:outline-none font-medium text-slate-700"
+              className="w-full pl-10 pr-4 py-3 bg-transparent focus:outline-none font-medium text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-600"
             />
           </div>
-          <button className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors">
+          <button className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-white/5 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
             <Filter className="w-5 h-5" />
           </button>
         </div>
@@ -198,7 +205,9 @@ export default function Training() {
             key={cat}
             className={cn(
               "px-6 py-2 rounded-full font-bold text-sm whitespace-nowrap transition-all",
-              i === 0 ? "bg-blue-600 text-white shadow-md shadow-blue-200" : "bg-white text-slate-500 border border-slate-200"
+              i === 0 
+                ? "bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-blue-900/20" 
+                : "bg-white dark:bg-[#111] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10"
             )}
           >
             {cat}
@@ -208,7 +217,7 @@ export default function Training() {
 
       {/* Course List */}
       <div className="px-6 space-y-6">
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-200 flex items-center gap-2">
           <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
           Cursos Destacados
         </h2>
@@ -219,7 +228,7 @@ export default function Training() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.1 }}
-            className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100 group active:scale-[0.98] transition-all"
+            className="bg-white dark:bg-[#111] rounded-3xl overflow-hidden shadow-sm border border-slate-100 dark:border-white/5 group active:scale-[0.98] transition-all"
           >
             <div className="relative h-48 overflow-hidden">
               <img 
@@ -229,7 +238,7 @@ export default function Training() {
                 referrerPolicy="no-referrer"
               />
               <div className="absolute top-4 left-4">
-                <span className="px-3 py-1 rounded-full bg-white/90 backdrop-blur-sm text-blue-600 text-[10px] font-black uppercase tracking-widest shadow-sm">
+                <span className="px-3 py-1 rounded-full bg-white/90 dark:bg-black/80 backdrop-blur-sm text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-widest shadow-sm">
                   {course.category}
                 </span>
               </div>
@@ -267,7 +276,7 @@ export default function Training() {
 
             <div className="p-6">
               <div className="flex justify-between items-start mb-2">
-                <h3 className="text-lg font-bold text-slate-900 leading-tight flex-1 mr-2">
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-200 leading-tight flex-1 mr-2">
                   {course.title}
                 </h3>
                 <div className="flex items-center gap-1 text-amber-500 font-bold text-sm">
@@ -275,23 +284,23 @@ export default function Training() {
                   {course.rating}
                 </div>
               </div>
-              <p className="text-slate-500 text-sm mb-4 line-clamp-2">
+              <p className="text-slate-500 dark:text-slate-500 text-sm mb-4 line-clamp-2">
                 {course.description}
               </p>
               
-              <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+              <div className="flex items-center justify-between pt-4 border-t border-slate-50 dark:border-white/5">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
                     <Award className="w-5 h-5" />
                   </div>
-                  <span className="text-sm font-black text-emerald-600">+{course.xp} XP</span>
+                  <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">+{course.xp} XP</span>
                 </div>
                 <button 
                   onClick={() => completeCourse(course.id, course.xp)}
                   disabled={completedCourses.includes(course.id) || completingId === course.id}
                   className={cn(
                     "font-bold text-sm flex items-center gap-1 transition-colors",
-                    completedCourses.includes(course.id) ? "text-emerald-600" : "text-blue-600 hover:text-blue-700"
+                    completedCourses.includes(course.id) ? "text-emerald-600 dark:text-emerald-400" : "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                   )}
                 >
                   {completedCourses.includes(course.id) ? "Completado" : "Completar Curso"}

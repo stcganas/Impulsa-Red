@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, User, ArrowRight } from "lucide-react";
 import { useUser } from "../contexts/UserContext";
+import Logo from "../components/Logo";
 import { supabase } from "../lib/supabase";
+import { calculatePercentage } from "../utils/levelUtils";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -15,6 +17,22 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false);
 
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  useEffect(() => {
+    // Auto-detect referral code from URL
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("ref");
+    if (ref) {
+      localStorage.setItem("referral_code", ref);
+      setReferrerCode(ref);
+    } else {
+      // Check localStorage if not in URL
+      const savedRef = localStorage.getItem("referral_code");
+      if (savedRef) {
+        setReferrerCode(savedRef);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!loading) {
@@ -63,11 +81,20 @@ export default function Register() {
           email: authData.user.email,
           name: name,
           role: 'user',
-          plan: 'Gratis',
+          plan: 'Básico',
           level: 1,
           xp: 0,
-          percentage: 10,
-          referral_code: name.substring(0, 3).toUpperCase() + Math.floor(1000 + Math.random() * 9000)
+          percentage: calculatePercentage(1, 'Básico'),
+          trust_score: 100,
+          leader_level: 'Promotor',
+          referral_code: (() => {
+            const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            const numbers = "0123456789";
+            let code = "";
+            for (let i = 0; i < 3; i++) code += letters[Math.floor(Math.random() * letters.length)];
+            for (let i = 0; i < 3; i++) code += numbers[Math.floor(Math.random() * numbers.length)];
+            return code;
+          })()
         });
 
       if (profileError && profileError.code !== '23505') { // Ignore if already exists
@@ -88,6 +115,13 @@ export default function Register() {
             },
             body: JSON.stringify({ referrerCode }),
           });
+
+          // Track register_completed event
+          await supabase.from('conversion_events').insert({
+            referral_code: referrerCode,
+            event_type: 'register_completed',
+            metadata: { name: name }
+          });
         } catch (refErr) {
           console.error("Error processing referral:", refErr);
           // We don't block the registration if referral fails
@@ -105,10 +139,11 @@ export default function Register() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 text-slate-900 px-6 py-12">
+    <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-[#0a0a0a] text-slate-900 dark:text-white px-6 py-12">
       <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full">
-        <div className="mb-10 text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-3">
+        <div className="mb-10 text-center flex flex-col items-center">
+          <Logo className="mb-8" size="xl" />
+          <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-white mb-3">
             Crea tu cuenta
           </h1>
           <p className="text-slate-500 text-lg">
@@ -128,7 +163,7 @@ export default function Register() {
               <input
                 type="text"
                 placeholder="Nombre completo"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
@@ -139,7 +174,7 @@ export default function Register() {
               <input
                 type="email"
                 placeholder="Correo electrónico"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -150,7 +185,7 @@ export default function Register() {
               <input
                 type="password"
                 placeholder="Contraseña"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -161,7 +196,7 @@ export default function Register() {
               <input
                 type="text"
                 placeholder="Código de referido (Opcional)"
-                className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm"
+                className="w-full pl-12 pr-4 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm text-slate-900 dark:text-white"
                 value={referrerCode}
                 onChange={(e) => setReferrerCode(e.target.value)}
               />

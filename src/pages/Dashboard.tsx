@@ -9,19 +9,40 @@ import {
   TrendingUp,
   Sparkles,
   LogOut,
+  Sun,
+  Moon,
+  Shield,
+  Rocket
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useUser } from "../contexts/UserContext";
+import { useFeatures } from "../contexts/FeatureContext";
+import Logo from "../components/Logo";
+import { TaskEngine } from "../utils/TaskEngine";
 
+import { useTheme } from "../contexts/ThemeContext";
 import NotificationCenter from "../components/NotificationCenter";
+import UserPlanView from "../components/UserPlanView";
+import AdvancedStats from "../components/AdvancedStats";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, loading, logout } = useUser();
+  const { theme, toggleTheme } = useTheme();
+  const { getUserFeature } = useFeatures();
+
+  useEffect(() => {
+    if (getUserFeature('has_advanced_stats')) {
+      TaskEngine.triggerEvent('FEATURE_USAGE', 1, { feature_id: 'has_advanced_stats' });
+    }
+    if (getUserFeature('whatsapp_boost')) {
+      TaskEngine.triggerEvent('FEATURE_USAGE', 1, { feature_id: 'whatsapp_boost' });
+    }
+  }, [getUserFeature]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
@@ -44,10 +65,25 @@ export default function Dashboard() {
     return "Novato";
   };
 
+  const getNextBadge = (level: number) => {
+    if (level < 10) return { name: "Emprendedor", level: 10 };
+    if (level < 20) return { name: "Visionario", level: 20 };
+    if (level < 30) return { name: "Estratega", level: 30 };
+    if (level < 40) return { name: "Constructor", level: 40 };
+    if (level < 50) return { name: "Inspirador", level: 50 };
+    if (level < 60) return { name: "Mentor", level: 60 };
+    if (level < 70) return { name: "Referente", level: 70 };
+    if (level < 80) return { name: "Transformador", level: 80 };
+    if (level < 90) return { name: "Líder Supremo", level: 90 };
+    if (level < 100) return { name: "Arquitecto", level: 100 };
+    return null;
+  };
+
   const badge = getBadge(user.level);
+  const nextBadge = getNextBadge(user.level);
   
-  // Calculate XP needed for next level (simple formula: level * 100)
-  const xpNeeded = user.level * 100;
+  // Calculate XP needed for next level (simple formula: level * 1000)
+  const xpNeeded = user.level * 1000;
   
   const currentCommission = user.percentage;
   const progressTo70 = (currentCommission / 70) * 100;
@@ -55,17 +91,28 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/login");
+    navigate("/");
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] pb-24">
       {/* Header */}
-      <div className="bg-slate-900 text-white pt-20 pb-24 px-6 rounded-b-[40px] shadow-xl relative overflow-hidden">
+      <div className="bg-slate-900 dark:bg-[#111] text-white pt-20 pb-24 px-6 rounded-b-[40px] shadow-xl relative overflow-hidden transition-colors duration-300">
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[120%] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none" />
         <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-emerald-600/20 blur-[60px] rounded-full pointer-events-none" />
 
+        <div className="absolute top-6 left-6 z-50">
+          <Logo size="sm" showText={false} />
+        </div>
+
         <div className="absolute top-6 right-6 z-50 flex gap-3 items-center">
+          <button 
+            onClick={toggleTheme}
+            className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all border border-white/20"
+            title={`Cambiar a modo ${theme === 'dark' ? 'claro' : 'oscuro'}`}
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
           <NotificationCenter />
           <button 
             onClick={handleLogout}
@@ -108,16 +155,16 @@ export default function Dashboard() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-3xl p-6 shadow-xl shadow-slate-200/50 border border-slate-100"
+          className="bg-white dark:bg-[#111] rounded-3xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-black/20 border border-slate-100 dark:border-white/5"
         >
           <div className="flex justify-between items-start mb-6">
             <div>
-              <p className="text-slate-500 font-medium text-sm mb-1 uppercase tracking-wider">
+              <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mb-1 uppercase tracking-wider">
                 Comisión Actual
               </p>
-              <div className="text-4xl font-black text-slate-900 flex items-baseline gap-1">
+              <div className="text-4xl font-black text-slate-900 dark:text-white flex items-baseline gap-1">
                 {currentCommission.toFixed(1)}
-                <span className="text-2xl text-slate-400">%</span>
+                <span className="text-2xl text-slate-400 dark:text-slate-600">%</span>
               </div>
             </div>
 
@@ -128,15 +175,17 @@ export default function Dashboard() {
                 viewBox="0 0 36 36"
               >
                 <path
-                  className="text-slate-100"
+                  className="text-slate-100 dark:text-white/5"
                   strokeWidth="3"
                   stroke="currentColor"
                   fill="none"
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                 />
-                <path
+                <motion.path
+                  initial={{ strokeDasharray: "0, 100" }}
+                  animate={{ strokeDasharray: `${progressTo70}, 100` }}
+                  transition={{ duration: 1.5, ease: "easeOut" }}
                   className="text-blue-500"
-                  strokeDasharray={`${progressTo70}, 100`}
                   strokeWidth="3"
                   strokeLinecap="round"
                   stroke="currentColor"
@@ -145,24 +194,24 @@ export default function Dashboard() {
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">
+                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
                   Meta
                 </span>
-                <span className="text-sm font-black text-slate-900">70%</span>
+                <span className="text-sm font-black text-slate-900 dark:text-white">70%</span>
               </div>
             </div>
           </div>
 
-          <div className="bg-slate-50 rounded-2xl p-4">
+          <div className="bg-slate-50 dark:bg-white/5 rounded-2xl p-4">
             <div className="flex justify-between text-sm font-medium mb-2">
-              <span className="text-slate-600">
+              <span className="text-slate-600 dark:text-slate-400">
                 Progreso a Nivel {user.level + 1}
               </span>
-              <span className="text-blue-600 font-bold">
+              <span className="text-blue-600 dark:text-blue-400 font-bold">
                 {user.xp} / {xpNeeded} XP
               </span>
             </div>
-            <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+            <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-2.5 overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${levelProgress}%` }}
@@ -200,18 +249,18 @@ export default function Dashboard() {
         </motion.div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid ${getUserFeature('can_create_team') ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
           <motion.button
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             onClick={() => navigate("/referrals")}
-            className="bg-white rounded-3xl p-5 shadow-lg shadow-slate-200/40 border border-slate-100 flex flex-col items-center justify-center gap-3 active:scale-[0.98] transition-transform"
+            className="bg-white dark:bg-[#111] rounded-3xl p-4 shadow-lg shadow-slate-200/40 dark:shadow-black/20 border border-slate-100 dark:border-white/5 flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
           >
-            <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
-              <Users className="w-7 h-7" />
+            <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-blue-600">
+              <Users className="w-6 h-6" />
             </div>
-            <span className="font-bold text-slate-800">Invitar</span>
+            <span className="font-bold text-sm text-slate-800 dark:text-white">Invitar</span>
           </motion.button>
 
           <motion.button
@@ -219,22 +268,45 @@ export default function Dashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
             onClick={() => navigate("/tasks")}
-            className="bg-white rounded-3xl p-5 shadow-lg shadow-slate-200/40 border border-slate-100 flex flex-col items-center justify-center gap-3 active:scale-[0.98] transition-transform"
+            className="bg-white dark:bg-[#111] rounded-3xl p-4 shadow-lg shadow-slate-200/40 dark:shadow-black/20 border border-slate-100 dark:border-white/5 flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
           >
-            <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center text-amber-500">
-              <CheckSquare className="w-7 h-7" />
+            <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-amber-500">
+              <CheckSquare className="w-6 h-6" />
             </div>
-            <span className="font-bold text-slate-800">Ver Tareas</span>
+            <span className="font-bold text-sm text-slate-800 dark:text-white">Tareas</span>
           </motion.button>
+
+          {getUserFeature('can_create_team') && (
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              onClick={() => navigate("/team")}
+              className="bg-white dark:bg-[#111] rounded-3xl p-4 shadow-lg shadow-slate-200/40 dark:shadow-black/20 border border-slate-100 dark:border-white/5 flex flex-col items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+            >
+              <div className="w-12 h-12 rounded-full bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                <Shield className="w-6 h-6" />
+              </div>
+              <span className="font-bold text-sm text-slate-800 dark:text-white">Mi Red</span>
+            </motion.button>
+          )}
         </div>
 
-        {/* Next Milestone */}
+        {/* User Plan View */}
+        <UserPlanView />
+
+        {/* Advanced Stats */}
+        {getUserFeature('has_advanced_stats') && (
+          <AdvancedStats />
+        )}
+
+        {/* Mentor IA */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
           onClick={() => navigate("/mentor")}
-          className="bg-slate-900 rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform relative overflow-hidden"
+          className="bg-slate-900 dark:bg-[#111] rounded-3xl p-6 text-white shadow-xl shadow-slate-900/20 dark:shadow-black/40 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform relative overflow-hidden border border-white/5"
         >
           <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/20 blur-2xl pointer-events-none" />
           <div className="flex items-center gap-4 relative z-10">
@@ -251,21 +323,53 @@ export default function Dashboard() {
           <ChevronRight className="w-6 h-6 text-slate-500" />
         </motion.div>
 
-        {/* Next Milestone (Old one moved down or modified) */}
-        <div className="bg-white rounded-3xl p-6 border border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
-              <Trophy className="w-6 h-6 text-amber-500" />
+        {/* Viral Engine */}
+        {getUserFeature('whatsapp_boost') && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            onClick={() => navigate("/referrals", { state: { tab: 'personalize' } })}
+            className="bg-gradient-to-r from-violet-600 to-fuchsia-600 rounded-3xl p-6 text-white shadow-xl shadow-violet-500/20 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-transform relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-center gap-4 relative z-10">
+              <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shadow-lg backdrop-blur-sm">
+                <Rocket className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <p className="text-violet-200 text-xs font-bold uppercase tracking-widest mb-0.5">
+                  Herramienta
+                </p>
+                <p className="font-bold text-lg">Motor de Conversión Viral</p>
+              </div>
             </div>
-            <div>
-              <p className="text-slate-400 text-sm font-medium mb-0.5">
-                Próxima Insignia
-              </p>
-              <p className="font-bold text-slate-800">Constructor (Nivel 40)</p>
+            <ChevronRight className="w-6 h-6 text-white/70" />
+          </motion.div>
+        )}
+
+        {/* Next Milestone */}
+        {nextBadge && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="bg-white dark:bg-[#111] rounded-3xl p-6 border border-slate-100 dark:border-white/5 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <Trophy className="w-6 h-6 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-slate-400 dark:text-slate-500 text-sm font-medium mb-0.5">
+                  Próxima Insignia
+                </p>
+                <p className="font-bold text-slate-800 dark:text-slate-200">{nextBadge.name} (Nivel {nextBadge.level})</p>
+              </div>
             </div>
-          </div>
-          <span className="text-xs font-bold text-slate-300">Bloqueado</span>
-        </div>
+            <span className="text-xs font-bold text-slate-300 dark:text-slate-600">Bloqueado</span>
+          </motion.div>
+        )}
       </div>
     </div>
   );

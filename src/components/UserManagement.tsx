@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Loader2, Trash2, Edit2, Play, Pause, ChevronDown, ChevronUp, Mail, Phone, MapPin, Calendar, Award, CheckSquare, Wallet, Users, Hash, Shield, X } from 'lucide-react';
+import { Search, Loader2, Trash2, Edit2, Play, Pause, ChevronDown, ChevronUp, Mail, Phone, MapPin, Calendar, Award, CheckSquare, Wallet, Users, Hash, Shield, X, AlertTriangle, Plus } from 'lucide-react';
 
 interface UserData {
   id: string;
@@ -18,6 +18,16 @@ interface UserData {
   completedTasks?: number;
   walletBalance?: number;
   referralCount?: number;
+  compliance_score?: number;
+}
+
+interface TaskData {
+  id: string;
+  name: string;
+  day: string;
+  xp: number;
+  completed: boolean;
+  isPenalty?: boolean;
 }
 
 export default function UserManagement() {
@@ -27,10 +37,18 @@ export default function UserManagement() {
   const [roleFilter, setRoleFilter] = useState('todos');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   
+  // User Tasks State
+  const [userTasks, setUserTasks] = useState<TaskData[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
   // Edit Modal State
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [editFormData, setEditFormData] = useState({ name: '', email: '', role: '', phone: '', address: '' });
+
+  // Penalty Modal State
+  const [isPenaltyModalOpen, setIsPenaltyModalOpen] = useState(false);
+  const [penaltyFormData, setPenaltyFormData] = useState({ name: '', xp: 50 });
 
   useEffect(() => {
     fetchUsers();
@@ -57,6 +75,61 @@ export default function UserManagement() {
     }
   };
 
+  const fetchUserTasks = async (userId: string) => {
+    setLoadingTasks(true);
+    try {
+      // Fetch all tasks
+      const { data: allTasks, error: tasksError } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('id');
+      
+      if (tasksError) throw tasksError;
+
+      // Fetch user's completed tasks
+      const { data: completedTasks, error: completedError } = await supabase
+        .from('user_tasks')
+        .select('task_id')
+        .eq('user_id', userId);
+
+      if (completedError) throw completedError;
+
+      // Fetch user's penalty tasks
+      const { data: penaltyTasks, error: penaltyError } = await supabase
+        .from('penalty_tasks')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (penaltyError) throw penaltyError;
+
+      const completedTaskIds = new Set(completedTasks?.map(ut => ut.task_id));
+
+      const formattedTasks = (allTasks || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        day: t.day,
+        xp: t.xp,
+        completed: completedTaskIds.has(t.id),
+        isPenalty: false
+      }));
+
+      const formattedPenaltyTasks = (penaltyTasks || []).map(pt => ({
+        id: pt.id,
+        name: pt.name,
+        day: 'Castigo',
+        xp: pt.xp,
+        completed: pt.is_completed,
+        isPenalty: true
+      }));
+
+      setUserTasks([...formattedTasks, ...formattedPenaltyTasks]);
+    } catch (error) {
+      console.error("Error fetching user tasks:", error);
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
   const handleUserAction = async (id: string, action: string, data?: any) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -79,14 +152,48 @@ export default function UserManagement() {
         body: body ? JSON.stringify(body) : undefined
       });
 
-      if (!response.ok) throw new Error(`Error performing ${action}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Error performing ${action}`);
+      }
       
       fetchUsers();
       setIsEditMode(false);
       setSelectedUser(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error performing ${action}:`, error);
-      alert('Error al realizar la acción');
+      alert(error.message || 'Error al realizar la acción');
+    }
+  };
+
+  const handleAddPenalty = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      const response = await fetch(`/api/admin/users/${selectedUser.id}/penalty-tasks`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: penaltyFormData.name,
+          xp: penaltyFormData.xp
+        })
+      });
+
+      if (!response.ok) throw new Error('Error adding penalty task');
+      
+      alert('Tarea de castigo agregada exitosamente.');
+      setIsPenaltyModalOpen(false);
+      setPenaltyFormData({ name: '', xp: 50 });
+    } catch (error) {
+      console.error('Error adding penalty task:', error);
+      alert('Error al agregar la tarea de castigo.');
     }
   };
 
@@ -98,7 +205,13 @@ export default function UserManagement() {
   );
 
   const toggleExpand = (id: string) => {
-    setExpandedUserId(expandedUserId === id ? null : id);
+    if (expandedUserId === id) {
+      setExpandedUserId(null);
+      setUserTasks([]);
+    } else {
+      setExpandedUserId(id);
+      fetchUserTasks(id);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -122,15 +235,15 @@ export default function UserManagement() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4">
         <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold">Gestión de Usuarios</h2>
-          <div className="bg-white/5 px-4 py-2 rounded-full border border-white/5 flex items-center gap-2 w-64 focus-within:border-emerald-500/50 transition-colors">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Gestión de Usuarios</h2>
+          <div className="bg-white dark:bg-white/5 px-4 py-2 rounded-full border border-slate-200 dark:border-white/5 flex items-center gap-2 w-64 focus-within:border-emerald-500/50 transition-colors">
             <Search className="w-4 h-4 text-slate-500" />
             <input 
               type="text" 
               placeholder="Buscar por nombre, email o ID..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-transparent border-none focus:ring-0 text-sm w-full placeholder:text-slate-600 outline-none"
+              className="bg-transparent border-none focus:ring-0 text-sm w-full placeholder:text-slate-400 dark:placeholder:text-slate-600 outline-none text-slate-900 dark:text-white"
             />
           </div>
         </div>
@@ -143,7 +256,7 @@ export default function UserManagement() {
               className={`px-4 py-2 rounded-full text-xs font-bold capitalize transition-all ${
                 roleFilter === role 
                   ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' 
-                  : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  : 'bg-white dark:bg-white/5 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-white/10'
               }`}
             >
               {role}
@@ -161,10 +274,10 @@ export default function UserManagement() {
           {filteredUsers.map((user) => (
             <div 
               key={user.id} 
-              className={`bg-[#111] border transition-all duration-300 overflow-hidden ${
+              className={`bg-white dark:bg-[#111] border transition-all duration-300 overflow-hidden ${
                 expandedUserId === user.id 
                   ? 'border-emerald-500/30 shadow-lg shadow-emerald-500/5 rounded-2xl' 
-                  : 'border-white/5 hover:border-white/10 rounded-xl'
+                  : 'border-slate-200 dark:border-white/5 hover:border-slate-300 dark:hover:border-white/10 rounded-xl'
               }`}
             >
               {/* Collapsed Header */}
@@ -174,14 +287,14 @@ export default function UserManagement() {
               >
                 <div className="flex items-center gap-4">
                   {user.avatar_url ? (
-                    <img src={user.avatar_url} alt={user.name} className="w-12 h-12 rounded-full object-cover border border-white/10" />
+                    <img src={user.avatar_url} alt={user.name} className="w-12 h-12 rounded-full object-cover border border-slate-200 dark:border-white/10" />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-blue-500/20 border border-white/5 flex items-center justify-center text-emerald-500 font-bold text-lg">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500/20 to-blue-500/20 border border-slate-200 dark:border-white/5 flex items-center justify-center text-emerald-500 font-bold text-lg">
                       {user.name?.charAt(0).toUpperCase() || 'U'}
                     </div>
                   )}
                   <div>
-                    <h3 className="font-bold text-base flex items-center gap-2">
+                    <h3 className="font-bold text-base flex items-center gap-2 text-slate-900 dark:text-white">
                       {user.name || 'Usuario Sin Nombre'}
                       {user.role === 'admin' && <Shield className="w-3.5 h-3.5 text-emerald-500" />}
                     </h3>
@@ -194,7 +307,7 @@ export default function UserManagement() {
                   }`}>
                     {user.status || 'active'}
                   </div>
-                  <button className="p-2 text-slate-400 hover:text-white transition-colors rounded-full hover:bg-white/5">
+                  <button className="p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors rounded-full hover:bg-slate-100 dark:hover:bg-white/5">
                     {expandedUserId === user.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                   </button>
                 </div>
@@ -202,7 +315,7 @@ export default function UserManagement() {
 
               {/* Expanded Content */}
               {expandedUserId === user.id && (
-                <div className="px-4 pb-4 pt-2 border-t border-white/5 bg-black/20">
+                <div className="px-4 pb-4 pt-2 border-t border-slate-100 dark:border-white/5 bg-slate-50/50 dark:bg-black/20">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4">
                     
                     {/* Personal Info */}
@@ -213,21 +326,21 @@ export default function UserManagement() {
                           <Mail className="w-4 h-4 text-slate-400 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Email</p>
-                            <p className="text-sm font-medium">{user.email}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.email}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <Phone className="w-4 h-4 text-slate-400 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Teléfono</p>
-                            <p className="text-sm font-medium">{user.phone || 'No especificado'}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.phone || 'No especificado'}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <MapPin className="w-4 h-4 text-slate-400 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Dirección</p>
-                            <p className="text-sm font-medium">{user.address || 'No especificada'}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.address || 'No especificada'}</p>
                           </div>
                         </div>
                       </div>
@@ -241,21 +354,28 @@ export default function UserManagement() {
                           <Award className="w-4 h-4 text-emerald-500 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Nivel</p>
-                            <p className="text-sm font-medium">Nivel {user.level || 1} ({user.plan || 'Free'})</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">Nivel {user.level || 1} ({user.plan || 'Free'})</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <CheckSquare className="w-4 h-4 text-blue-500 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Tareas Completadas</p>
-                            <p className="text-sm font-medium">{user.completedTasks || 0} tareas</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.completedTasks || 0} tareas</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <Wallet className="w-4 h-4 text-amber-500 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Saldo de Billetera</p>
-                            <p className="text-sm font-medium">{formatCurrency(user.walletBalance || 0)}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{formatCurrency(user.walletBalance || 0)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                          <Award className="w-4 h-4 text-indigo-500 mt-0.5" />
+                          <div>
+                            <p className="text-[10px] text-slate-500">Puntaje de Cumplimiento</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.compliance_score || 100}%</p>
                           </div>
                         </div>
                       </div>
@@ -269,29 +389,83 @@ export default function UserManagement() {
                           <Calendar className="w-4 h-4 text-slate-400 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Fecha de Registro</p>
-                            <p className="text-sm font-medium">{formatDate(user.created_at)}</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{formatDate(user.created_at)}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <Users className="w-4 h-4 text-purple-500 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Referidos</p>
-                            <p className="text-sm font-medium">{user.referralCount || 0} usuarios</p>
+                            <p className="text-sm font-medium text-slate-900 dark:text-white">{user.referralCount || 0} usuarios</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-3">
                           <Hash className="w-4 h-4 text-slate-400 mt-0.5" />
                           <div>
                             <p className="text-[10px] text-slate-500">Código de Referencia</p>
-                            <p className="text-sm font-mono bg-white/5 px-2 py-0.5 rounded mt-0.5">{user.referral_code || 'N/A'}</p>
+                            <p className="text-sm font-mono bg-slate-200 dark:bg-white/5 px-2 py-0.5 rounded mt-0.5 text-slate-900 dark:text-white">{user.referral_code || 'N/A'}</p>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
 
+                  {/* User Tasks */}
+                  <div className="mt-6 pt-6 border-t border-slate-200 dark:border-white/5">
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4 flex items-center gap-2">
+                      <CheckSquare className="w-4 h-4 text-emerald-500" />
+                      Estado de Tareas Semanales
+                    </h4>
+                    
+                    {loadingTasks ? (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
+                      </div>
+                    ) : userTasks.length === 0 ? (
+                      <p className="text-sm text-slate-500">No hay tareas configuradas.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {userTasks.map(task => (
+                          <div key={task.id} className={`flex items-center justify-between p-3 rounded-xl border ${task.completed ? 'bg-emerald-500/10 border-emerald-500/20' : task.isPenalty ? 'bg-red-500/10 border-red-500/20' : 'bg-white dark:bg-white/5 border-slate-200 dark:border-white/10'}`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${task.completed ? 'bg-emerald-500 text-white' : task.isPenalty ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'}`}>
+                                {task.isPenalty ? <AlertTriangle className="w-4 h-4" /> : <CheckSquare className="w-4 h-4" />}
+                              </div>
+                              <div>
+                                <p className={`text-sm font-medium ${task.completed ? 'text-emerald-600 dark:text-emerald-400' : task.isPenalty ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'}`}>{task.name}</p>
+                                <p className="text-[10px] text-slate-500">{task.isPenalty ? 'Tarea de Castigo' : `Día ${task.day}`} • {task.xp} XP</p>
+                              </div>
+                            </div>
+                            {!task.completed && !task.isPenalty && (
+                              <button
+                                onClick={() => {
+                                  setSelectedUser(user);
+                                  setPenaltyFormData({ name: `Castigo por: ${task.name}`, xp: 50 });
+                                  setIsPenaltyModalOpen(true);
+                                }}
+                                className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                              >
+                                <Plus className="w-3 h-3" /> Castigo
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Actions Bar */}
-                  <div className="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-3 justify-end">
+                  <div className="mt-4 pt-4 border-t border-slate-200 dark:border-white/5 flex flex-wrap gap-3 justify-end">
+                    <button 
+                      onClick={() => {
+                        setSelectedUser(user);
+                        setIsPenaltyModalOpen(true);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <AlertTriangle className="w-4 h-4" /> Agregar Castigo
+                    </button>
+
                     <button 
                       onClick={() => { 
                         setSelectedUser(user); 
@@ -304,19 +478,19 @@ export default function UserManagement() {
                           address: user.address || ''
                         }); 
                       }} 
-                      className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm font-medium transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg text-sm font-medium transition-colors text-slate-700 dark:text-slate-300"
                     >
-                      <Edit2 className="w-4 h-4 text-blue-400" /> Editar
+                      <Edit2 className="w-4 h-4 text-blue-500 dark:text-blue-400" /> Editar
                     </button>
                     
                     <button 
                       onClick={() => handleUserAction(user.id, 'update', { status: user.status === 'active' ? 'paused' : 'active' })} 
-                      className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-sm font-medium transition-colors"
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg text-sm font-medium transition-colors text-slate-700 dark:text-slate-300"
                     >
                       {user.status === 'active' ? (
-                        <><Pause className="w-4 h-4 text-amber-400" /> Pausar</>
+                        <><Pause className="w-4 h-4 text-amber-500 dark:text-amber-400" /> Pausar</>
                       ) : (
-                        <><Play className="w-4 h-4 text-emerald-400" /> Activar</>
+                        <><Play className="w-4 h-4 text-emerald-500 dark:text-emerald-400" /> Activar</>
                       )}
                     </button>
                     
@@ -333,20 +507,84 @@ export default function UserManagement() {
           ))}
           
           {filteredUsers.length === 0 && (
-            <div className="text-center py-12 bg-[#111] rounded-2xl border border-white/5">
+            <div className="text-center py-12 bg-white dark:bg-[#111] rounded-2xl border border-slate-200 dark:border-white/5">
               <p className="text-slate-500">No se encontraron usuarios que coincidan con la búsqueda.</p>
             </div>
           )}
         </div>
       )}
 
+      {/* Penalty Modal */}
+      {isPenaltyModalOpen && selectedUser && (
+        <div className="fixed inset-0 bg-slate-900/80 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-[#111] rounded-3xl border border-slate-200 dark:border-white/10 p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-xl text-red-500 flex items-center gap-2">
+                <AlertTriangle className="w-6 h-6" />
+                Agregar Tarea de Castigo
+              </h3>
+              <button onClick={() => setIsPenaltyModalOpen(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-full transition-colors">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              Asignar una tarea de castigo a <strong className="text-slate-900 dark:text-white">{selectedUser.name}</strong> por incumplimiento.
+            </p>
+
+            <form onSubmit={handleAddPenalty} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-500 ml-1 mb-1 block">Nombre de la Tarea de Castigo</label>
+                <input 
+                  type="text"
+                  required
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-red-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
+                  value={penaltyFormData.name} 
+                  onChange={e => setPenaltyFormData({...penaltyFormData, name: e.target.value})} 
+                  placeholder="Ej: Ver 3 videos educativos extra" 
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-500 ml-1 mb-1 block">Experiencia (XP) a recuperar</label>
+                <input 
+                  type="number"
+                  min="0"
+                  required
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-red-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
+                  value={penaltyFormData.xp} 
+                  onChange={e => setPenaltyFormData({...penaltyFormData, xp: parseInt(e.target.value)})} 
+                  placeholder="Ej: 50" 
+                />
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setIsPenaltyModalOpen(false)}
+                  className="flex-1 py-3 rounded-xl font-bold bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors text-slate-700 dark:text-slate-300"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="flex-1 py-3 rounded-xl font-bold bg-red-500 hover:bg-red-600 text-white transition-colors"
+                >
+                  Asignar Castigo
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Edit Modal */}
       {isEditMode && selectedUser && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[#111] rounded-3xl border border-white/10 p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-slate-900/80 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-[#111] rounded-3xl border border-slate-200 dark:border-white/10 p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-xl">Editar Usuario</h3>
-              <button onClick={() => setIsEditMode(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+              <h3 className="font-bold text-xl text-slate-900 dark:text-white">Editar Usuario</h3>
+              <button onClick={() => setIsEditMode(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-white/5 rounded-full transition-colors">
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
@@ -355,7 +593,7 @@ export default function UserManagement() {
               <div>
                 <label className="text-xs text-slate-500 ml-1 mb-1 block">Nombre Completo</label>
                 <input 
-                  className="w-full bg-white/5 border border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors" 
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
                   value={editFormData.name} 
                   onChange={e => setEditFormData({...editFormData, name: e.target.value})} 
                   placeholder="Nombre" 
@@ -365,7 +603,7 @@ export default function UserManagement() {
               <div>
                 <label className="text-xs text-slate-500 ml-1 mb-1 block">Correo Electrónico</label>
                 <input 
-                  className="w-full bg-white/5 border border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors" 
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white opacity-50" 
                   value={editFormData.email} 
                   onChange={e => setEditFormData({...editFormData, email: e.target.value})} 
                   placeholder="Email" 
@@ -378,7 +616,7 @@ export default function UserManagement() {
                 <div>
                   <label className="text-xs text-slate-500 ml-1 mb-1 block">Teléfono</label>
                   <input 
-                    className="w-full bg-white/5 border border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors" 
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
                     value={editFormData.phone} 
                     onChange={e => setEditFormData({...editFormData, phone: e.target.value})} 
                     placeholder="Teléfono" 
@@ -387,14 +625,14 @@ export default function UserManagement() {
                 <div>
                   <label className="text-xs text-slate-500 ml-1 mb-1 block">Rol</label>
                   <select 
-                    className="w-full bg-white/5 border border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors appearance-none" 
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors appearance-none text-slate-900 dark:text-white" 
                     value={editFormData.role} 
                     onChange={e => setEditFormData({...editFormData, role: e.target.value})}
                   >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                    <option value="leader">Leader</option>
-                    <option value="referral">Referral</option>
+                    <option value="user" className="bg-white dark:bg-[#111]">User</option>
+                    <option value="admin" className="bg-white dark:bg-[#111]">Admin</option>
+                    <option value="leader" className="bg-white dark:bg-[#111]">Leader</option>
+                    <option value="referral" className="bg-white dark:bg-[#111]">Referral</option>
                   </select>
                 </div>
               </div>
@@ -402,7 +640,7 @@ export default function UserManagement() {
               <div>
                 <label className="text-xs text-slate-500 ml-1 mb-1 block">Dirección</label>
                 <input 
-                  className="w-full bg-white/5 border border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors" 
+                  className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
                   value={editFormData.address} 
                   onChange={e => setEditFormData({...editFormData, address: e.target.value})} 
                   placeholder="Dirección completa" 
@@ -412,7 +650,7 @@ export default function UserManagement() {
               <div className="pt-4 flex gap-3">
                 <button 
                   onClick={() => setIsEditMode(false)} 
-                  className="flex-1 py-3 bg-white/5 hover:bg-white/10 rounded-xl font-bold transition-colors"
+                  className="flex-1 py-3 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-xl font-bold transition-colors text-slate-700 dark:text-slate-300"
                 >
                   Cancelar
                 </button>
