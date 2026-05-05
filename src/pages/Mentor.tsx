@@ -331,34 +331,29 @@ export default function Mentor() {
     }
 
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('La clave de la API de Gemini no está configurada. Por favor, asegúrate de que GEMINI_API_KEY esté en tus Secrets.');
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No hay sesión activa");
 
-      const ai = new GoogleGenAI({ apiKey });
-      const systemInstruction = `Eres el Mentor Financiero IA de ${settings.app_name || 'ImpulsaRed'}. Tu objetivo es ayudar a los usuarios a crecer su red de referidos, motivarlos a completar sus tareas diarias, darles estrategias de ventas y explicarles cómo subir de nivel para alcanzar el 70% de comisión. 
-      
-      Contexto del usuario actual:
-      - Nombre: ${user?.name || 'Usuario'}
-      - Nivel: ${user?.level || 1}
-      - Plan: ${user?.plan || 'Gratis'}
-      - Saldo: $${(user?.wallet_balance || 0).toLocaleString('es-CO')}
-      - Referidos Directos: ${user?.referrals_count || 0}
-      
-      Sé entusiasta, profesional y motivador. Usa un tono de líder de equipo. Menciona datos de su progreso si es relevante para motivarlo.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: currentInput,
-        config: {
-          systemInstruction,
-        }
+      const res = await fetch('/api/mentor/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ 
+          message: currentInput,
+          settingsName: settings.app_name 
+        })
       });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Error en la respuesta del mentor');
+      }
 
       const botMsg: Message = {
         id: (Date.now() + 1).toString(),
-        text: response.text || "Lo siento, tuve un pequeño error. ¿Podrías repetir eso?",
+        text: data.reply || "Lo siento, tuve un pequeño error. ¿Podrías repetir eso?",
         sender: 'bot',
         timestamp: new Date()
       };

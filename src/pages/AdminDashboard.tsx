@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users,
+  User,
   TrendingUp,
   DollarSign,
   Settings,
@@ -21,6 +22,7 @@ import {
   Sun
 } from "lucide-react";
 import { motion } from "motion/react";
+import { toast } from "sonner";
 import { useUser } from "../contexts/UserContext";
 import Logo from "../components/Logo";
 import { useTheme } from "../contexts/ThemeContext";
@@ -37,6 +39,7 @@ import FeatureManager from "../components/admin/FeatureManager";
 import PlanFeatureEditor from "../components/admin/PlanFeatureEditor";
 import NotificationSettings from "../components/NotificationSettings";
 import GlobalNotificationSender from "../components/admin/GlobalNotificationSender";
+import SystemManagement from "../components/SystemManagement";
 
 interface AdminStats {
   totalUsers: number;
@@ -78,12 +81,16 @@ export default function AdminDashboard() {
         if (!session) return;
 
         const statsRes = await fetch('/api/admin/dashboard-data', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
-          mode: 'cors'
+          headers: { 'Authorization': `Bearer ${session.access_token}` }
+        }).catch(err => {
+          console.error("Network error fetching admin stats:", err);
+          throw new Error(`Error de red: ${err.message}`);
         });
 
         if (!statsRes.ok) {
-          throw new Error('Error fetching admin stats from API');
+          const text = await statsRes.text();
+          console.error(`Admin stats response not OK: ${statsRes.status} ${statsRes.statusText}`, text);
+          throw new Error(`Error ${statsRes.status}: ${statsRes.statusText}`);
         }
 
         const data = await statsRes.json();
@@ -132,8 +139,7 @@ export default function AdminDashboard() {
         try {
           // Fetch System Status
           const statusRes = await fetch('/api/admin/system-status', {
-            headers: { 'Authorization': `Bearer ${session.access_token}` },
-            mode: 'cors'
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
           });
           if (statusRes.ok) {
             const statusData = await statusRes.json();
@@ -150,6 +156,42 @@ export default function AdminDashboard() {
 
     if (user && user.role === 'admin') {
       fetchStats();
+
+      // Realtime listeners for admin
+      const transactionsChannel = supabase
+        .channel('admin_transactions')
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'transactions' 
+        }, (payload) => {
+          console.log("Admin: New transaction detected", payload.new);
+          toast.info("Nueva transacción", {
+            description: `Se ha registrado una nueva actividad de ${(payload.new as any).type}`
+          });
+          fetchStats(); // Refresh stats and activity
+        })
+        .subscribe();
+
+      const ticketsChannel = supabase
+        .channel('admin_tickets')
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'tickets' 
+        }, (payload) => {
+          console.log("Admin: New ticket detected", payload.new);
+          toast.warning("Nuevo Ticket de Soporte", {
+            description: (payload.new as any).subject
+          });
+          setPendingTickets(prev => prev + 1);
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(transactionsChannel);
+        supabase.removeChannel(ticketsChannel);
+      };
     }
   }, [user]);
 
@@ -182,6 +224,7 @@ export default function AdminDashboard() {
             { icon: Users, label: "Usuarios" },
             { icon: TrendingUp, label: "Transacciones" },
             { icon: MessageSquare, label: "Tickets" },
+            { icon: Activity, label: "Sistema" },
             { icon: CheckSquare, label: "Tareas" },
             { icon: Video, label: "Cursos" },
             { icon: ShieldCheck, label: "Planes" },
@@ -216,6 +259,7 @@ export default function AdminDashboard() {
           { icon: Users, label: "Usuarios" },
           { icon: TrendingUp, label: "Transacciones" },
           { icon: MessageSquare, label: "Tickets" },
+          { icon: Activity, label: "Sistema" },
           { icon: CheckSquare, label: "Tareas" },
           { icon: Video, label: "Cursos" },
           { icon: ShieldCheck, label: "Planes" },
@@ -261,11 +305,22 @@ export default function AdminDashboard() {
             </button>
             <NotificationCenter />
             <div className="flex items-center gap-3 pl-4 border-l border-white/10">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10" />
+              <button 
+                onClick={() => navigate("/profile")}
+                className="w-10 h-10 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white transition-all overflow-hidden"
+                title="Mi Perfil"
+              >
+                {user.avatar_url ? (
+                  <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-5 h-5" />
+                )}
+              </button>
             </div>
             <button 
               onClick={handleLogout}
               className="p-2 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all border border-red-500/20"
+              title="Cerrar Sesión"
             >
               <LogOut className="w-5 h-5" />
             </button>
@@ -391,6 +446,7 @@ export default function AdminDashboard() {
           {activeTab === "Usuarios" && <UserManagement />}
           {activeTab === "Transacciones" && <TransactionManagement />}
           {activeTab === "Tickets" && <TicketManagement />}
+          {activeTab === "Sistema" && <SystemManagement />}
           {activeTab === "Tareas" && <TaskManagement />}
           {activeTab === "Cursos" && <CourseManagement />}
           {activeTab === "Planes" && (

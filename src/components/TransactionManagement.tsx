@@ -25,6 +25,9 @@ export default function TransactionManagement() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [targetTx, setTargetTx] = useState<Transaction | null>(null);
 
   useEffect(() => {
     fetchTransactions();
@@ -50,7 +53,13 @@ export default function TransactionManagement() {
     }
   };
 
-  const handleAction = async (tx: Transaction, status: 'completed' | 'rejected') => {
+  const handleAction = async (tx: Transaction, status: 'completed' | 'rejected', reason?: string) => {
+    if (status === 'rejected' && !reason && !showRejectionModal) {
+      setTargetTx(tx);
+      setShowRejectionModal(true);
+      return;
+    }
+
     const actionLabel = status === 'completed' ? 'APROBAR' : 'RECHAZAR';
     if (!window.confirm(`¿Estás seguro de ${actionLabel} esta transacción?`)) return;
     
@@ -85,7 +94,11 @@ export default function TransactionManagement() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`
           },
-          body: JSON.stringify({ transactionId: tx.id, status })
+          body: JSON.stringify({ 
+            transactionId: tx.id, 
+            status,
+            rejectionReason: reason
+          })
         });
 
         if (!response.ok) {
@@ -95,6 +108,10 @@ export default function TransactionManagement() {
       }
       
       setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status } : t));
+      setShowRejectionModal(false);
+      setRejectionReason('');
+      setTargetTx(null);
+      
       if (tx.type === 'plan_purchase' && status === 'completed') {
         // Refresh to see the new commission transaction if it was created
         fetchTransactions();
@@ -145,6 +162,43 @@ export default function TransactionManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Rejection Reason Modal */}
+      {showRejectionModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-white dark:bg-[#111] rounded-[30px] p-8 w-full max-w-md border border-slate-200 dark:border-white/10 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Rechazar Transacción</h3>
+            <p className="text-sm text-slate-500 mb-6">Por favor, indica el motivo del rechazo para informar al usuario.</p>
+            
+            <textarea
+              className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-red-500/50 outline-none min-h-[120px] text-slate-900 dark:text-white"
+              placeholder="Ej: Comprobante ilegible, monto no coincide, cuenta no válida..."
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+            />
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowRejectionModal(false);
+                  setRejectionReason('');
+                  setTargetTx(null);
+                }}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={!rejectionReason.trim() || processingId === targetTx?.id}
+                onClick={() => targetTx && handleAction(targetTx, 'rejected', rejectionReason)}
+                className="flex-1 py-3 px-4 rounded-xl font-bold bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all disabled:opacity-50"
+              >
+                Confirmar Rechazo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Receipt Modal */}
       {selectedReceipt && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm" onClick={() => setSelectedReceipt(null)}>

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Crown, ArrowRight, X, Upload, Loader2, DollarSign, CreditCard } from "lucide-react";
+import { Check, Crown, ArrowRight, X, Upload, Loader2, DollarSign, CreditCard, Wallet } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
@@ -243,7 +243,63 @@ export default function PlanSelection() {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 mb-6">
+              <button
+                disabled={uploading}
+                onClick={async () => {
+                  if (!selectedPlan) return;
+                  if (!window.confirm(`¿Seguro que deseas usar el saldo de tu billetera para pagar el plan ${selectedPlan.name} por $${selectedPlan.price.toLocaleString('es-CO')}?`)) return;
+
+                  setUploading(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session) throw new Error("No session found");
+
+                    const response = await fetch('/api/plans/purchase', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${session.access_token}`
+                      },
+                      body: JSON.stringify({ 
+                        planId: selectedPlan.id,
+                        payWithBalance: true
+                      })
+                    });
+
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                      throw new Error(data.error || "Error al procesar la compra");
+                    }
+
+                    alert("¡Plan adquirido con éxito usando el saldo de tu billetera!");
+                    await refreshUser();
+                    setIsModalOpen(false);
+                    navigate("/dashboard");
+                  } catch (error: any) {
+                    alert(error.message);
+                  } finally {
+                    setUploading(false);
+                  }
+                }}
+                className={cn(
+                  "w-full py-4 px-6 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all",
+                  "bg-blue-600 text-white shadow-lg hover:bg-blue-700 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                <Wallet className="w-5 h-5" />
+                Pagar con Saldo Interno
+              </button>
+            </div>
+
+            <div className="relative flex items-center py-4">
+              <div className="flex-grow border-t border-slate-200 dark:border-white/10"></div>
+              <span className="flex-shrink-0 mx-4 text-slate-400 dark:text-slate-500 font-medium text-sm">O transferencia bancaria</span>
+              <div className="flex-grow border-t border-slate-200 dark:border-white/10"></div>
+            </div>
+
+            <div className="space-y-4 mt-2">
               <p className="text-sm font-bold text-slate-700 dark:text-slate-300">Sube tu comprobante de pago:</p>
               
               <input 

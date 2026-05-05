@@ -1,7 +1,11 @@
 export const TaskEngine = {
   triggerEvent: async (eventType: string, value: number = 1, metadata: any = {}) => {
     try {
-      const token = localStorage.getItem('token');
+      // Import dynamically to avoid industrial cycle dependencies
+      const { supabase } = await import('../lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const token = session?.access_token;
       if (!token) return;
 
       const response = await fetch('/api/events', {

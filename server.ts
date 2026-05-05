@@ -26,17 +26,25 @@ dotenv.config();
 
 console.log("--- SERVIDOR INICIANDO ---");
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
+const supabaseServiceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-console.log("Supabase URL configured:", !!supabaseUrl);
-console.log("Supabase Service Key configured:", !!supabaseServiceKey);
+console.log("Supabase URL configured:", !!supabaseUrl, supabaseUrl ? `(${supabaseUrl.substring(0, 15)}...)` : "");
+console.log("Supabase Key configured:", !!supabaseServiceKey, supabaseServiceKey ? `(${supabaseServiceKey.substring(0, 10)}...)` : "");
+const isUsingServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+console.log("Is using Service Role Key:", isUsingServiceRole);
 
 let supabase: any = null;
 if (supabaseUrl && supabaseServiceKey) {
   try {
-    supabase = createClient(supabaseUrl, supabaseServiceKey);
-    console.log("Supabase inicializado correctamente");
+    supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    });
+    console.log("Supabase inicializado correctamente (Session persistence disabled)");
     
     // Ensure storage buckets exist
     const buckets = ['app-assets', 'avatars', 'receipts'];
@@ -366,6 +374,80 @@ async function startServer() {
     });
   });
 
+  const authenticate = async (req: any, res: any, next: any) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        console.warn(`[AUTH] No auth header for ${req.url}`);
+        return res.status(401).json({ error: 'No token provided' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      if (!token || token === 'undefined' || token === 'null') {
+        console.warn(`[AUTH] Invalid or missing token string for ${req.url}: ${token}`);
+        return res.status(401).json({ error: 'Malformed token' });
+      }
+
+      console.log(`[AUTH] Verificando token para: ${req.method} ${req.url} (Length: ${token.length})`);
+      
+      // Use the global client (which now has persistSession: false)
+      console.log(`[AUTH] Verificando token para: ${req.method} ${req.url} (Length: ${token.length})`);
+      
+      const { data, error: authError } = await supabase.auth.getUser(token);
+      const user = data?.user;
+      
+      if (authError || !user) {
+        const errorMsg = authError?.message || 'Empty user returned';
+        console.error(`[AUTH ERROR] ${req.url}: ${errorMsg}`);
+        
+        // Detailed diagnostics
+        console.log(`[AUTH DIAG] Token prefix: ${token.substring(0, 10)}...`);
+        console.log(`[AUTH DIAG] Token suffix: ...${token.substring(token.length - 10)}`);
+        console.log(`[AUTH DIAG] Supabase URL: ${supabaseUrl}`);
+        
+        // Specific check for "Auth session missing!" to help diagnostics
+        if (errorMsg === 'Auth session missing!') {
+          console.warn(`[AUTH DIAGNOSTIC] Token appears to be invalid or "Auth session missing!" returned by Supabase.`);
+        }
+        
+        return res.status(401).json({ 
+          error: errorMsg, 
+          details: 'Authentication failed at Supabase level',
+          code: authError?.status || 401
+        });
+      }
+
+      console.log(`[AUTH SUCCESS] User: ${user.email} (${user.id})`);
+      req.user = user;
+      next();
+    } catch (error: any) {
+      console.error(`[AUTH CRITICAL] ${req.url}:`, error);
+      res.status(500).json({ error: 'Error de autenticación interno' });
+    }
+  };
+
+  // Admin Authorization Middleware
+  const authorizeAdmin = async (req: any, res: any, next: any) => {
+    if (!req.user) return res.status(401).json({ error: 'No autenticado' });
+
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', req.user.id)
+        .single();
+      
+      if (profileError || profile?.role !== 'admin') {
+        return res.status(403).json({ error: 'Acceso restringido: se requieren permisos de administrador' });
+      }
+      
+      next();
+    } catch (error) {
+      console.error(`[ADMIN AUTH ERROR] ${req.url}:`, error);
+      res.status(500).json({ error: 'Error al verificar permisos de administrador' });
+    }
+  };
+
   // Test policies
   app.get('/api/test-policies', async (req, res) => {
     try {
@@ -380,16 +462,9 @@ async function startServer() {
   });
 
   // Upload Image
-  app.post('/api/upload-image', async (req, res) => {
+  app.post('/api/upload-image', authenticate, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
-
+      const user = req.user;
       const { bucket, fileName, base64Data, contentType } = req.body;
       
       if (!bucket || !fileName || !base64Data) {
@@ -421,18 +496,9 @@ async function startServer() {
   });
 
   // Process Referral
-  app.post('/api/referrals/process', async (req, res) => {
+  app.post('/api/referrals/process', authenticate, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !user) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-
+      const user = req.user;
       const { referrerCode } = req.body;
       if (!referrerCode) return res.json({ success: true, message: 'No referral code provided' });
 
@@ -599,15 +665,9 @@ async function startServer() {
   });
 
   // Get referral stats for a user
-  app.get('/api/referrals/summary', async (req, res) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'No autorizado' });
-
+  app.get('/api/referrals/summary', authenticate, async (req: any, res: any) => {
     try {
-      const token = authHeader.split(' ')[1];
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !authUser) return res.status(401).json({ error: 'No autorizado' });
-
+      const authUser = req.user;
       // Get user's referral code
       const { data: userData } = await supabase
         .from('users')
@@ -1194,7 +1254,11 @@ async function startServer() {
         .filter((t: any) => t.type === 'withdrawal' && t.status !== 'rejected')
         .reduce((acc: number, curr: any) => acc + Number(curr.amount), 0);
 
-      const balance = totalEarnings - totalWithdrawals;
+      const totalWalletPurchases = (txs || [])
+        .filter((t: any) => t.type === 'plan_purchase' && t.status === 'completed' && t.receipt_url === 'wallet')
+        .reduce((acc: number, curr: any) => acc + Number(curr.amount), 0);
+
+      const balance = totalEarnings - totalWithdrawals - totalWalletPurchases;
 
       await supabase
         .from('users')
@@ -1206,6 +1270,153 @@ async function startServer() {
       console.error(`Error updating wallet balance for user ${userId}:`, err);
       return 0;
     }
+  }
+
+  // Define helper function to process a plan purchase specifically (used by wallet payments and admin approval)
+  async function processPlanPurchase(tx: any) {
+    if (!tx || tx.type !== 'plan_purchase') return;
+
+    // 0. Get user's current level
+    const { data: userProfile } = await supabase.from('users').select('level').eq('id', tx.user_id).single();
+    const userLevel = userProfile?.level || 1;
+
+    // 1. Identify plan from amount or metadata
+    const amount = Math.abs(tx.amount);
+    let planName = 'Básico';
+    let planId = null;
+    
+    // Try to find plan in database by amount
+    const { data: planData } = await supabase
+      .from('plans')
+      .select('id, name')
+      .eq('price', amount)
+      .single();
+
+    if (planData) {
+      planName = planData.name;
+      planId = planData.id;
+    } else {
+      // Fallback to hardcoded logic if plan not found in table
+      if (amount >= 120000) { planName = 'Élite'; }
+      else if (amount >= 60000) { planName = 'Pro'; }
+      else if (amount >= 30000) { planName = 'Avanzado'; }
+    }
+
+    const newPercentage = calculatePercentage(userLevel, planName);
+
+    // 2. Update user plan
+    const updateData: any = {
+      plan: planName,
+      percentage: newPercentage
+    };
+    if (planId) {
+      updateData.plan_id = planId;
+    }
+
+    const { error: userUpdateError } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('id', tx.user_id);
+
+    if (userUpdateError) throw userUpdateError;
+
+    // 3. Process referral commission (Up to 3 levels)
+    let currentReferredId = tx.user_id;
+    let currentLevel = 1;
+    
+    while (currentLevel <= 3) {
+      const { data: referral } = await supabase
+        .from('referrals')
+        .select('referrer_id')
+        .eq('referred_id', currentReferredId)
+        .single();
+
+      if (!referral || !referral.referrer_id) break;
+
+      const { data: referrer } = await supabase
+        .from('users')
+        .select('percentage, name, plan')
+        .eq('id', referral.referrer_id)
+        .single();
+
+      if (referrer) {
+        // Calculate percentage based on level and plan
+        let levelPercentage = 0;
+        const planLower = referrer.plan?.toLowerCase() || 'básico';
+        
+        if (currentLevel === 1) {
+          levelPercentage = 100; // 100% of their base commission
+        } else if (currentLevel === 2) {
+          if (planLower.includes('elite') || planLower.includes('élite')) levelPercentage = 50;
+          else if (planLower.includes('pro')) levelPercentage = 40;
+          else if (planLower.includes('avanzado')) levelPercentage = 30;
+          else levelPercentage = 20; // Básico
+        } else if (currentLevel === 3) {
+          if (planLower.includes('elite') || planLower.includes('élite')) levelPercentage = 25;
+          else if (planLower.includes('pro')) levelPercentage = 20;
+          else if (planLower.includes('avanzado')) levelPercentage = 15;
+          else levelPercentage = 10; // Básico
+        }
+
+        const effectiveCommissionPercentage = referrer.percentage * (levelPercentage / 100);
+        const commissionAmount = amount * (effectiveCommissionPercentage / 100);
+        
+        if (commissionAmount > 0) {
+          await supabase.from('transactions').insert({
+            user_id: referral.referrer_id,
+            referred_id: tx.user_id,
+            amount: commissionAmount,
+            commission: effectiveCommissionPercentage,
+            type: 'referral_commission',
+            status: 'completed',
+            nivel_red: currentLevel
+          });
+
+          // Update referrer's wallet balance
+          await updateWalletBalance(referral.referrer_id);
+
+          // Notify Referrer
+          await supabase.from('notifications').insert({
+            user_id: referral.referrer_id,
+            title: `¡Comisión de Red (Nivel ${currentLevel})!`,
+            message: `Has recibido $${commissionAmount.toLocaleString('es-CO')} por la compra de un referido en tu nivel ${currentLevel}.`,
+            type: 'success'
+          });
+          
+          // Add XP for referral buying plan
+          const { data: refProfile } = await supabase.from('users').select('xp, level, plan').eq('id', referral.referrer_id).single();
+          if (refProfile) {
+            const xpGained = 500; // +500 XP
+            const newXp = (refProfile.xp || 0) + xpGained;
+            let newLevel = Math.floor(newXp / 1000) + 1;
+            if (newLevel > 100) newLevel = 100;
+            let newPercentage = refProfile.percentage;
+
+            if (newLevel > (refProfile.level || 1)) {
+              newPercentage = calculatePercentage(newLevel, refProfile.plan || 'Básico');
+            }
+
+            await supabase.from('users').update({ xp: newXp, level: newLevel, percentage: newPercentage }).eq('id', referral.referrer_id);
+          }
+        }
+      }
+
+      currentReferredId = referral.referrer_id;
+      currentLevel++;
+    }
+
+    // Notify User that plan is approved
+    await supabase.from('notifications').insert({
+      user_id: tx.user_id,
+      title: 'Plan Activado',
+      message: `Tu plan ${planName} ha sido activado con éxito. ¡Disfruta de tus beneficios!`,
+      type: 'success'
+    });
+
+    await evaluateTasks(tx.user_id, {
+      event_type: 'PLAN_PURCHASE',
+      metadata: { plan_id: planName }
+    });
   }
 
   app.post('/api/plans/purchase', async (req, res) => {
@@ -1220,7 +1431,7 @@ async function startServer() {
         return res.status(401).json({ error: 'Invalid token' });
       }
 
-      const { planId, receiptUrl } = req.body;
+      const { planId, receiptUrl, payWithBalance } = req.body;
       
       // Fetch plan from database
       const { data: selectedPlan, error: planError } = await supabase
@@ -1233,22 +1444,52 @@ async function startServer() {
         return res.status(400).json({ error: 'Plan inválido' });
       }
 
-      // Create a pending transaction
-      const { data: transaction, error: txError } = await supabase
-        .from('transactions')
-        .insert({
-          user_id: authUser.id,
-          amount: selectedPlan.price,
-          type: 'plan_purchase',
-          status: 'pending',
-          receipt_url: receiptUrl
-        })
-        .select()
-        .single();
+      if (payWithBalance) {
+        const balance = await updateWalletBalance(authUser.id);
+        if (balance < selectedPlan.price) {
+          return res.status(400).json({ error: 'Saldo insuficiente en billetera. Solicita un retiro o recarga.' });
+        }
 
-      if (txError) throw txError;
+        // Subtract directly from balance creates a 'completed' transaction
+        const { data: transaction, error: txError } = await supabase
+          .from('transactions')
+          .insert({
+            user_id: authUser.id,
+            amount: selectedPlan.price,
+            type: 'plan_purchase',
+            status: 'completed',
+            receipt_url: 'wallet' // This flag is used in updateWalletBalance
+          })
+          .select()
+          .single();
 
-      res.json({ success: true, transaction });
+        if (txError) throw txError;
+
+        // Process the plan purchase
+        await processPlanPurchase(transaction);
+        
+        // Update user's wallet
+        await updateWalletBalance(authUser.id);
+
+        res.json({ success: true, transaction });
+      } else {
+        // Create a pending transaction
+        const { data: transaction, error: txError } = await supabase
+          .from('transactions')
+          .insert({
+            user_id: authUser.id,
+            amount: selectedPlan.price,
+            type: 'plan_purchase',
+            status: 'pending',
+            receipt_url: receiptUrl
+          })
+          .select()
+          .single();
+
+        if (txError) throw txError;
+
+        res.json({ success: true, transaction });
+      }
     } catch (error: any) {
       console.error('Error in /api/plans/purchase:', error);
       res.status(500).json({ error: error.message || 'Error al procesar la compra' });
@@ -1304,20 +1545,8 @@ async function startServer() {
   });
 
   // Approve Transaction (Admin only)
-  app.post('/api/admin/transactions/approve', async (req, res) => {
+  app.post('/api/admin/transactions/approve', authenticate, authorizeAdmin, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !adminUser) return res.status(401).json({ error: 'Invalid token' });
-
-      // Check if admin
-      const { data: adminProfile } = await supabase.from('users').select('role').eq('id', adminUser.id).single();
-      if (adminProfile?.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
-
       const { transactionId } = req.body;
       if (!transactionId) return res.status(400).json({ error: 'Transaction ID is required' });
 
@@ -1332,142 +1561,7 @@ async function startServer() {
       if (tx.status !== 'pending') throw new Error("Transaction is already processed");
 
       if (tx.type === 'plan_purchase') {
-        // 0. Get user's current level
-        const { data: userProfile } = await supabase.from('users').select('level').eq('id', tx.user_id).single();
-        const userLevel = userProfile?.level || 1;
-
-        // 1. Identify plan from amount or metadata
-        const amount = Math.abs(tx.amount);
-        let planName = 'Básico';
-        let planId = null;
-        
-        // Try to find plan in database by amount
-        const { data: planData } = await supabase
-          .from('plans')
-          .select('id, name')
-          .eq('price', amount)
-          .single();
-
-        if (planData) {
-          planName = planData.name;
-          planId = planData.id;
-        } else {
-          // Fallback to hardcoded logic if plan not found in table
-          if (amount >= 120000) { planName = 'Élite'; }
-          else if (amount >= 60000) { planName = 'Pro'; }
-          else if (amount >= 30000) { planName = 'Avanzado'; }
-        }
-
-        const newPercentage = calculatePercentage(userLevel, planName);
-
-        // 2. Update user plan
-        const updateData: any = {
-          plan: planName,
-          percentage: newPercentage
-        };
-        if (planId) {
-          updateData.plan_id = planId;
-        }
-
-        const { error: userUpdateError } = await supabase
-          .from('users')
-          .update(updateData)
-          .eq('id', tx.user_id);
-
-        if (userUpdateError) throw userUpdateError;
-
-        // 3. Process referral commission (Up to 3 levels)
-        let currentReferredId = tx.user_id;
-        let currentLevel = 1;
-        
-        while (currentLevel <= 3) {
-          const { data: referral } = await supabase
-            .from('referrals')
-            .select('referrer_id')
-            .eq('referred_id', currentReferredId)
-            .single();
-
-          if (!referral || !referral.referrer_id) break;
-
-          const { data: referrer } = await supabase
-            .from('users')
-            .select('percentage, name, plan')
-            .eq('id', referral.referrer_id)
-            .single();
-
-          if (referrer) {
-            // Calculate percentage based on level and plan
-            let levelPercentage = 0;
-            const planLower = referrer.plan?.toLowerCase() || 'básico';
-            
-            if (currentLevel === 1) {
-              levelPercentage = 100; // 100% of their base commission
-            } else if (currentLevel === 2) {
-              if (planLower.includes('elite') || planLower.includes('élite')) levelPercentage = 50;
-              else if (planLower.includes('pro')) levelPercentage = 40;
-              else if (planLower.includes('avanzado')) levelPercentage = 30;
-              else levelPercentage = 20; // Básico
-            } else if (currentLevel === 3) {
-              if (planLower.includes('elite') || planLower.includes('élite')) levelPercentage = 25;
-              else if (planLower.includes('pro')) levelPercentage = 20;
-              else if (planLower.includes('avanzado')) levelPercentage = 15;
-              else levelPercentage = 10; // Básico
-            }
-
-            const effectiveCommissionPercentage = referrer.percentage * (levelPercentage / 100);
-            const commissionAmount = amount * (effectiveCommissionPercentage / 100);
-            
-            if (commissionAmount > 0) {
-              await supabase.from('transactions').insert({
-                user_id: referral.referrer_id,
-                referred_id: tx.user_id,
-                amount: commissionAmount,
-                commission: effectiveCommissionPercentage,
-                type: 'referral_commission',
-                status: 'completed',
-                nivel_red: currentLevel
-              });
-
-              // Update referrer's wallet balance
-              await updateWalletBalance(referral.referrer_id);
-
-              // Notify Referrer
-              await supabase.from('notifications').insert({
-                user_id: referral.referrer_id,
-                title: `¡Comisión de Red (Nivel ${currentLevel})!`,
-                message: `Has recibido $${commissionAmount.toLocaleString('es-CO')} por la compra de un referido en tu nivel ${currentLevel}.`,
-                type: 'success'
-              });
-              
-              // Add XP for referral buying plan
-              const { data: refProfile } = await supabase.from('users').select('xp, level, plan').eq('id', referral.referrer_id).single();
-              if (refProfile) {
-                const xpGained = 500; // +500 XP
-                const newXp = (refProfile.xp || 0) + xpGained;
-                let newLevel = Math.floor(newXp / 1000) + 1;
-                if (newLevel > 100) newLevel = 100;
-                let newPercentage = refProfile.percentage;
-
-                if (newLevel > (refProfile.level || 1)) {
-                  newPercentage = calculatePercentage(newLevel, refProfile.plan || 'Básico');
-                }
-
-                await supabase.from('users').update({ xp: newXp, level: newLevel, percentage: newPercentage }).eq('id', referral.referrer_id);
-              }
-            }
-          }
-
-          currentReferredId = referral.referrer_id;
-          currentLevel++;
-        }
-
-        // Notify User that plan is approved
-        await supabase.from('notifications').insert({
-          user_id: tx.user_id,
-          title: 'Plan Activado',
-          message: `Tu plan ${planName} ha sido activado con éxito. ¡Disfruta de tus beneficios!`,
-          type: 'success'
-        });
+        await processPlanPurchase(tx);
       }
 
       // Update transaction status
@@ -1478,21 +1572,6 @@ async function startServer() {
 
       if (updateError) throw updateError;
 
-      if (tx.type === 'plan_purchase') {
-        const amount = Math.abs(tx.amount);
-        let planName = 'Básico';
-        const { data: planData } = await supabase.from('plans').select('name').eq('price', amount).single();
-        if (planData) planName = planData.name;
-        else if (amount >= 120000) planName = 'Élite';
-        else if (amount >= 60000) planName = 'Pro';
-        else if (amount >= 30000) planName = 'Avanzado';
-
-        await evaluateTasks(tx.user_id, {
-          event_type: 'PLAN_PURCHASE',
-          metadata: { plan_id: planName }
-        });
-      }
-
       res.json({ success: true });
     } catch (error: any) {
       console.error('Error in /api/admin/transactions/approve:', error);
@@ -1501,21 +1580,9 @@ async function startServer() {
   });
 
   // Update Transaction Status (Withdrawals, etc.)
-  app.post('/api/admin/transactions/update-status', async (req, res) => {
+  app.post('/api/admin/transactions/update-status', authenticate, authorizeAdmin, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !adminUser) return res.status(401).json({ error: 'Invalid token' });
-
-      // Check if user is admin
-      const { data: adminProfile } = await supabase.from('users').select('role').eq('id', adminUser.id).single();
-      if (adminProfile?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-
-      const { transactionId, status } = req.body;
+      const { transactionId, status, rejectionReason } = req.body;
 
       // Get transaction details
       const { data: tx, error: txError } = await supabase
@@ -1546,7 +1613,12 @@ async function startServer() {
           message = `Tu solicitud de retiro por $${Number(tx.amount).toLocaleString('es-CO')} ha sido aprobada.`;
         } else if (status === 'rejected') {
           title = "Retiro Rechazado";
-          message = `Tu solicitud de retiro por $${Number(tx.amount).toLocaleString('es-CO')} ha sido rechazada.`;
+          message = `Tu solicitud de retiro por $${Number(tx.amount).toLocaleString('es-CO')} ha sido rechazada.${rejectionReason ? ` Motivo: ${rejectionReason}` : ''}`;
+        }
+      } else if (tx.type === 'plan_purchase') {
+        if (status === 'rejected') {
+          title = "Compra de Plan Rechazada";
+          message = `Tu comprobante de pago para el plan ha sido rechazado.${rejectionReason ? ` Motivo: ${rejectionReason}` : ''}`;
         }
       }
 
@@ -1592,20 +1664,8 @@ async function startServer() {
   });
 
   // Admin Stats
-  app.get('/api/admin/dashboard-data', async (req, res) => {
+  app.get('/api/admin/dashboard-data', authenticate, authorizeAdmin, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No autorizado' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !adminUser) return res.status(401).json({ error: 'No autorizado' });
-
-      // Check if admin
-      const { data: adminProfile } = await supabase.from('users').select('role').eq('id', adminUser.id).single();
-      if (adminProfile?.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
-
       // Fetch total users
       const { count: totalUsersCount } = await supabase
         .from('users')
@@ -1681,22 +1741,72 @@ async function startServer() {
     }
   });
 
-  // Admin: Send Global Notification
-  app.post('/api/admin/notifications/global', async (req, res) => {
+  // AI Mentor Chat Endpoint
+  app.post('/api/mentor/chat', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader) return res.status(401).json({ error: 'No autorizado' });
       
       const token = authHeader.split(' ')[1];
       const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      if (authError || !user) return res.status(401).json({ error: 'Token inválido' });
+      
+      if (authError || !user) return res.status(401).json({ error: 'No autorizado' });
 
-      // Verify admin role
-      const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single();
-      if (userData?.role !== 'admin') {
-        return res.status(403).json({ error: 'No tienes permisos de administrador' });
+      const { message, settingsName } = req.body;
+      if (!message) return res.status(400).json({ error: 'Mensaje es requerido' });
+
+      // Get user profile for context
+      const { data: profile } = await supabase
+        .from('users')
+        .select('name, level, plan, wallet_balance')
+        .eq('id', user.id)
+        .single();
+        
+      // Get referral count
+      const { count: referralsCount } = await supabase
+        .from('referrals')
+        .select('*', { count: 'exact', head: true })
+        .eq('referrer_id', user.id);
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured on the server.');
       }
 
+      // We dynamically import so it doesn't break if not using AI
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+
+      const appName = settingsName || 'ImpulsaRed';
+      const systemInstruction = `Eres el Mentor Financiero IA de ${appName}. Tu objetivo es ayudar a los usuarios a crecer su red de referidos, motivarlos a completar sus tareas diarias, darles estrategias de ventas y explicarles cómo subir de nivel para alcanzar el 70% de comisión. 
+      
+      Contexto del usuario actual:
+      - Nombre: ${profile?.name || 'Usuario'}
+      - Nivel: ${profile?.level || 1}
+      - Plan: ${profile?.plan || 'Gratis'}
+      - Saldo: $${(profile?.wallet_balance || 0).toLocaleString('es-CO')}
+      - Referidos Directos: ${referralsCount || 0}
+      
+      Sé entusiasta, profesional y motivador. Usa un tono de líder de equipo. Menciona datos de su progreso si es relevante para motivarlo.`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: message,
+        config: {
+          systemInstruction,
+        }
+      });
+
+      res.json({ reply: response.text });
+    } catch (error: any) {
+      console.error("Error in AI Mentor chat:", error);
+      res.status(500).json({ error: error.message || "Error al comunicarse con la IA" });
+    }
+  });
+
+  // Admin: Send Global Notification
+  app.post('/api/admin/notifications/global', authenticate, authorizeAdmin, async (req: any, res: any) => {
+    try {
       const { title, message, type, targetRole } = req.body;
       if (!title || !message) {
         return res.status(400).json({ error: 'Título y mensaje son requeridos' });
@@ -1773,22 +1883,13 @@ async function startServer() {
   });
 
   // System Status (Admin only)
-  app.get('/api/admin/system-status', async (req, res) => {
+  app.get('/api/admin/system-status', authenticate, authorizeAdmin, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No autorizado' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !adminUser) return res.status(401).json({ error: 'No autorizado' });
-
-      // Check if admin
-      const { data: adminProfile } = await supabase.from('users').select('role').eq('id', adminUser.id).single();
-      if (adminProfile?.role !== 'admin') return res.status(403).json({ error: 'No autorizado' });
-
       const status = {
         database: supabase ? 'up' : 'down',
+        gemini_api: (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') ? 'up' : 'down',
+        auth: 'up', // If we reach here, auth works
+        storage: 'up', // Placeholder for storage service
         server: 'up',
         timestamp: new Date().toISOString(),
         env: process.env.NODE_ENV || 'development'
@@ -1801,16 +1902,9 @@ async function startServer() {
   });
 
   // Update Password
-  app.post('/api/user/change-password', async (req, res) => {
+  app.post('/api/user/change-password', authenticate, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
-
+      const user = req.user;
       const { newPassword } = req.body;
       if (!newPassword || newPassword.length < 6) {
         return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
@@ -1880,17 +1974,9 @@ async function startServer() {
   });
 
   // Get User Profile (Bypasses RLS recursion issues)
-  app.get('/api/account/data', async (req, res) => {
+  app.get('/api/account/data', authenticate, async (req: any, res: any) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
-      
-      const token = authHeader.split(' ')[1];
-      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-      
-      if (authError || !user) {
-        return res.status(401).json({ error: 'Invalid token' });
-      }
+      const user = req.user;
 
       // Fetch profile using service role key (which bypasses RLS)
       console.log("Fetching profile for user ID:", user.id);
@@ -2433,11 +2519,11 @@ async function startServer() {
       if (profile?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
 
       const { id } = req.params;
-      const { status, role, name, email, phone, address } = req.body;
+      const { status, role, name, email, phone, address, wallet_balance, xp } = req.body;
 
       const { error: updateError } = await supabase
         .from('users')
-        .update({ status, role, name, email, phone, address })
+        .update({ status, role, name, email, phone, address, wallet_balance, xp })
         .eq('id', id);
 
       if (updateError) throw updateError;
@@ -2828,6 +2914,7 @@ async function startServer() {
       res.status(500).json({ error: 'Internal server error', details: err.message });
     });
 
+    console.log(`[SERVER] Preparado para escuchar en puerto ${PORT}`);
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });

@@ -49,10 +49,11 @@ export default function Login() {
       });
 
       if (signInError) {
-        console.error("Error de Supabase Auth:", signInError);
-        throw new Error(signInError.message === 'Invalid login credentials' 
-          ? 'Credenciales inválidas' 
-          : signInError.message);
+        console.error("Error de Supabase Auth (Completo):", signInError);
+        const errorMsg = signInError.message || (typeof signInError === 'object' ? JSON.stringify(signInError) : String(signInError));
+        throw new Error(errorMsg === 'Invalid login credentials' 
+          ? 'Credenciales inválidas: Verifica tu correo y contraseña' 
+          : errorMsg);
       }
       
       console.log("Login exitoso, forzando refreshUser...", data.user?.id);
@@ -61,8 +62,26 @@ export default function Login() {
       // Trigger LOGIN_STREAK event
       await TaskEngine.triggerEvent('LOGIN_STREAK', 1);
     } catch (err: any) {
-      console.error("Login error:", err);
-      setError(err.message);
+      console.error("Login catch error:", err);
+      // Detailed error reporting
+      let displayError = "Error desconocido";
+      if (err.message) {
+        displayError = err.message;
+      } else if (typeof err === 'string') {
+        displayError = err;
+      } else {
+        try {
+          displayError = JSON.stringify(err);
+        } catch (e) {
+          displayError = "Error no serializable";
+        }
+      }
+      
+      if (displayError === "{}" || !displayError) {
+        displayError = "Error de conexión o credenciales inválidas (Objeto de error vacío)";
+      }
+      
+      setError(displayError);
     } finally {
       setIsLoading(false);
     }

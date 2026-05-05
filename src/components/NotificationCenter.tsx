@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, X, Check, Info, AlertTriangle, AlertCircle, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUser } from '../contexts/UserContext';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 
 interface Notification {
   id: string;
@@ -16,6 +18,7 @@ interface Notification {
 
 export default function NotificationCenter() {
   const { user } = useUser();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -35,7 +38,14 @@ export default function NotificationCenter() {
           table: 'notifications',
           filter: `user_id=eq.${user.id}`
         }, (payload) => {
-          setNotifications(prev => [payload.new as Notification, ...prev]);
+          const newNotif = payload.new as Notification;
+          setNotifications(prev => [newNotif, ...prev]);
+          
+          // Show real-time toast
+          toast(newNotif.title, {
+            description: newNotif.message,
+            icon: getIcon(newNotif.type),
+          });
         })
         .subscribe();
 
@@ -191,8 +201,14 @@ export default function NotificationCenter() {
                 )}
               </div>
               
-              <div className="p-3 bg-slate-50 text-center border-t border-slate-100">
-                <button className="text-xs font-bold text-slate-500 hover:text-slate-700">
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/50 text-center border-t border-slate-100 dark:border-slate-800">
+                <button 
+                  onClick={() => {
+                    setIsOpen(false);
+                    navigate('/notifications');
+                  }}
+                  className="text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                >
                   Ver todas las notificaciones
                 </button>
               </div>

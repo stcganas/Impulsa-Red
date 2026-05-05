@@ -18,8 +18,10 @@ import {
   MapPin,
   Loader2,
   Moon,
-  Sun
+  Sun,
+  ArrowLeft
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -56,39 +58,28 @@ export default function Profile() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert("Las contraseñas no coinciden");
+      toast.error("Las contraseñas no coinciden");
       return;
     }
     if (passwordData.newPassword.length < 6) {
-      alert("La contraseña debe tener al menos 6 caracteres");
+      toast.error("La contraseña debe tener al menos 6 caracteres");
       return;
     }
 
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const response = await fetch("/api/user/change-password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { "Authorization": `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ newPassword: passwordData.newPassword }),
+      const { error } = await supabase.auth.updateUser({
+        password: passwordData.newPassword
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Error al cambiar contraseña");
-      }
+      if (error) throw error;
 
-      alert("Contraseña actualizada con éxito");
+      toast.success("Contraseña actualizada con éxito");
       setIsChangingPassword(false);
       setPasswordData({ newPassword: "", confirmPassword: "" });
     } catch (error: any) {
       console.error("Error changing password:", error);
-      alert(error.message || "Error al cambiar contraseña");
+      toast.error(error.message || "Error al cambiar contraseña");
     } finally {
       setSaving(false);
     }
@@ -340,7 +331,18 @@ export default function Profile() {
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[120%] bg-blue-600/20 blur-[80px] rounded-full pointer-events-none" />
 
         <div className="relative z-10 flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">Mi Perfil</h1>
+          <div className="flex items-center gap-4">
+            {user.role === 'admin' && (
+              <button 
+                onClick={() => navigate("/admin")}
+                className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
+                title="Volver al Dashboard"
+              >
+                <ArrowLeft className="w-5 h-5 text-white" />
+              </button>
+            )}
+            <h1 className="text-3xl font-bold tracking-tight">Mi Perfil</h1>
+          </div>
           <button 
             onClick={() => setIsEditing(true)}
             className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors"
@@ -431,7 +433,7 @@ export default function Profile() {
             </div>
           </div>
 
-          {user.plan !== 'Élite' && (
+          {user.role !== 'admin' && user.plan !== 'Élite' && (
             <button 
               onClick={() => navigate("/plan-selection")}
               className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-lg shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50 transition-all active:scale-[0.98] flex items-center justify-center gap-2"

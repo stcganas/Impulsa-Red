@@ -145,9 +145,35 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
           if (!profileResponse.ok) {
-            const profileError = await profileResponse.json().catch(() => ({}));
-            console.error("Error de API al obtener perfil:", profileError);
-            throw new Error(profileError.error || profileError.message || `Error del servidor (${profileResponse.status})`);
+            let errorMessage = `Error del servidor (${profileResponse.status})`;
+            try {
+              const profileError = await profileResponse.json();
+              console.error("Error de API al obtener perfil:", profileError);
+              
+              // If it's an auth error, the session is definitely invalid
+              if (profileResponse.status === 401) {
+                const errorText = profileError.error || 'Unauthorized';
+                console.warn(`Auth error (401) detected: ${errorText}. Cleaning up...`);
+                
+                // Clear state
+                localStorage.removeItem('impulsa_user');
+                setUser(null);
+                
+                // Also sign out from supabase to be sure
+                try {
+                  await supabase.auth.signOut();
+                  console.log("Supabase signOut completed after 401");
+                } catch (soError) {
+                  console.error("Error during Supabase signOut:", soError);
+                }
+              }
+              
+              errorMessage = profileError.error || profileError.message || profileError.details || errorMessage;
+            } catch (e) {
+              console.warn("No se pudo parsear el error JSON del perfil:", e);
+            }
+            
+            throw new Error(errorMessage);
           }
 
           const profile = await profileResponse.json();
@@ -214,11 +240,34 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
+    // Realtime channel for profile updates
+    let profileChannel: any = null;
+    if (user?.id) {
+      profileChannel = supabase
+        .channel(`public:users:id=eq.${user.id}`)
+        .on('postgres_changes', {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'users',
+          filter: `id=eq.${user.id}`
+        }, (payload) => {
+          console.log("Realtime profile update received:", payload.new);
+          setUser(prev => {
+            if (!prev) return (payload.new as User);
+            const updated = { ...prev, ...payload.new } as User;
+            localStorage.setItem('impulsa_user', JSON.stringify(updated));
+            return updated;
+          });
+        })
+        .subscribe();
+    }
+
     return () => {
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
+      if (profileChannel) supabase.removeChannel(profileChannel);
     };
-  }, [refreshUser]);
+  }, [refreshUser, user?.id]);
 
   return (
     <UserContext.Provider value={{ user, loading, error, refreshUser, logout }}>

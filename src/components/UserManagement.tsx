@@ -44,7 +44,15 @@ export default function UserManagement() {
   // Edit Modal State
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
-  const [editFormData, setEditFormData] = useState({ name: '', email: '', role: '', phone: '', address: '' });
+  const [editFormData, setEditFormData] = useState({ 
+    name: '', 
+    email: '', 
+    role: '', 
+    phone: '', 
+    address: '',
+    wallet_balance: 0,
+    xp: 0
+  });
 
   // Penalty Modal State
   const [isPenaltyModalOpen, setIsPenaltyModalOpen] = useState(false);
@@ -475,7 +483,9 @@ export default function UserManagement() {
                           email: user.email || '', 
                           role: user.role || 'user',
                           phone: user.phone || '',
-                          address: user.address || ''
+                          address: user.address || '',
+                          wallet_balance: user.walletBalance || 0,
+                          xp: (user as any).xp || 0
                         }); 
                       }} 
                       className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 rounded-lg text-sm font-medium transition-colors text-slate-700 dark:text-slate-300"
@@ -634,6 +644,29 @@ export default function UserManagement() {
                     <option value="leader" className="bg-white dark:bg-[#111]">Leader</option>
                     <option value="referral" className="bg-white dark:bg-[#111]">Referral</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-slate-500 ml-1 mb-1 block">Saldo Billetera ($)</label>
+                  <input 
+                    type="number"
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
+                    value={editFormData.wallet_balance} 
+                    onChange={e => setEditFormData({...editFormData, wallet_balance: parseFloat(e.target.value) || 0})} 
+                    placeholder="0" 
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 ml-1 mb-1 block">Experiencia (XP)</label>
+                  <input 
+                    type="number"
+                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-emerald-500/50 p-3 rounded-xl outline-none transition-colors text-slate-900 dark:text-white" 
+                    value={editFormData.xp} 
+                    onChange={e => setEditFormData({...editFormData, xp: parseInt(e.target.value) || 0})} 
+                    placeholder="0" 
+                  />
                 </div>
               </div>
 

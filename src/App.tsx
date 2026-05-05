@@ -3,30 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, Component, ReactNode } from "react";
+import React, { useEffect, Component, ReactNode, Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import MobileLayout from "./components/layout/MobileLayout";
-import LandingPage from "./pages/LandingPage";
-import Onboarding from "./pages/Onboarding";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import PlanSelection from "./pages/PlanSelection";
-import Dashboard from "./pages/Dashboard";
-import Tasks from "./pages/Tasks";
-import Referrals from "./pages/Referrals";
-import Levels from "./pages/Levels";
-import Profile from "./pages/Profile";
-import Wallet from "./pages/Wallet";
-import Training from "./pages/Training";
-import Mentor from "./pages/Mentor";
-import Tickets from "./pages/Tickets";
-import AdminDashboard from "./pages/AdminDashboard";
-import Ranking from "./pages/Ranking";
-import TeamPanel from "./pages/TeamPanel";
-import MaintenancePage from "./pages/MaintenancePage";
-import InviteLandingPage from "./pages/InviteLandingPage";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
+import { Toaster } from "sonner";
 import { UserProvider, useUser } from "./contexts/UserContext";
 import { FeatureProvider } from "./contexts/FeatureContext";
 import { SettingsProvider, useSettings } from "./contexts/SettingsContext";
@@ -34,6 +14,30 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import LiveActivityNotifications from "./components/LiveActivityNotifications";
 import { APP_VERSION, STORAGE_KEYS } from "./constants";
+
+// Lazy Pages
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+const Onboarding = lazy(() => import("./pages/Onboarding"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const PlanSelection = lazy(() => import("./pages/PlanSelection"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Tasks = lazy(() => import("./pages/Tasks"));
+const Referrals = lazy(() => import("./pages/Referrals"));
+const Levels = lazy(() => import("./pages/Levels"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Wallet = lazy(() => import("./pages/Wallet"));
+const Training = lazy(() => import("./pages/Training"));
+const Mentor = lazy(() => import("./pages/Mentor"));
+const Tickets = lazy(() => import("./pages/Tickets"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const Ranking = lazy(() => import("./pages/Ranking"));
+const TeamPanel = lazy(() => import("./pages/TeamPanel"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const MaintenancePage = lazy(() => import("./pages/MaintenancePage"));
+const InviteLandingPage = lazy(() => import("./pages/InviteLandingPage"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
 const LoadingScreen = ({ message = "Cargando aplicación..." }: { message?: string }) => (
   <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-6 p-6">
@@ -81,6 +85,10 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: 
   }
   
   if (role && userRole !== role) {
+    // Allow admins to access user pages (to view profile, etc)
+    if (role === 'user' && userRole === 'admin') {
+      return <>{children}</>;
+    }
     console.log(`ProtectedRoute: Role mismatch. Expected ${role}, got ${userRole}. Redirecting...`);
     return <Navigate to={userRole === 'admin' ? "/admin" : "/dashboard"} replace />;
   }
@@ -198,6 +206,7 @@ export default function App() {
   console.log("App component rendering...");
   return (
     <ErrorBoundary>
+      <Toaster position="top-center" expand={true} richColors />
       <ThemeProvider>
         <SettingsProvider>
           <UserProvider>
@@ -205,37 +214,40 @@ export default function App() {
               <NotificationProvider>
                 <BrowserRouter>
                   <LiveActivityNotifications />
-                  <Routes>
-                    {/* Public Pages */}
-                  <Route path="/" element={<MaintenanceGuard><LandingPage /></MaintenanceGuard>} />
-                  <Route path="/onboarding" element={<MaintenanceGuard><Onboarding /></MaintenanceGuard>} />
-                  <Route path="/login" element={<MaintenanceGuard><Login /></MaintenanceGuard>} />
-                  <Route path="/register" element={<MaintenanceGuard><Register /></MaintenanceGuard>} />
-                  <Route path="/forgot-password" element={<MaintenanceGuard><ForgotPassword /></MaintenanceGuard>} />
-                  <Route path="/reset-password" element={<MaintenanceGuard><ResetPassword /></MaintenanceGuard>} />
-                  <Route path="/invite/:referralCode" element={<InviteLandingPage />} />
-                  <Route path="/maintenance" element={<MaintenancePage />} />
-                  <Route path="/plan-selection" element={<ProtectedRoute><PlanSelection /></ProtectedRoute>} />
-                  
-                  {/* Standalone Pages */}
-                  <Route path="/mentor" element={<ProtectedRoute><Mentor /></ProtectedRoute>} />
+                  <Suspense fallback={<LoadingScreen message="Cargando vista..." />}>
+                    <Routes>
+                      {/* Public Pages */}
+                      <Route path="/" element={<MaintenanceGuard><LandingPage /></MaintenanceGuard>} />
+                      <Route path="/onboarding" element={<MaintenanceGuard><Onboarding /></MaintenanceGuard>} />
+                      <Route path="/login" element={<MaintenanceGuard><Login /></MaintenanceGuard>} />
+                      <Route path="/register" element={<MaintenanceGuard><Register /></MaintenanceGuard>} />
+                      <Route path="/forgot-password" element={<MaintenanceGuard><ForgotPassword /></MaintenanceGuard>} />
+                      <Route path="/reset-password" element={<MaintenanceGuard><ResetPassword /></MaintenanceGuard>} />
+                      <Route path="/invite/:referralCode" element={<InviteLandingPage />} />
+                      <Route path="/maintenance" element={<MaintenancePage />} />
+                      <Route path="/plan-selection" element={<ProtectedRoute><PlanSelection /></ProtectedRoute>} />
+                      
+                      {/* Standalone Pages */}
+                      <Route path="/mentor" element={<ProtectedRoute><Mentor /></ProtectedRoute>} />
 
-                  {/* Main App */}
-                  <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
-                  
-                  <Route element={<ProtectedRoute role="user"><MobileLayout /></ProtectedRoute>}>
-                    <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/tasks" element={<Tasks />} />
-                    <Route path="/referrals" element={<Referrals />} />
-                    <Route path="/wallet" element={<Wallet />} />
-                    <Route path="/training" element={<Training />} />
-                    <Route path="/ranking" element={<Ranking />} />
-                    <Route path="/team" element={<TeamPanel />} />
-                    <Route path="/levels" element={<Levels />} />
-                    <Route path="/profile" element={<Profile />} />
-                    <Route path="/tickets" element={<Tickets />} />
-                  </Route>
-                </Routes>
+                      {/* Main App */}
+                      <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
+                      
+                      <Route element={<ProtectedRoute role="user"><MobileLayout /></ProtectedRoute>}>
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/tasks" element={<Tasks />} />
+                        <Route path="/referrals" element={<Referrals />} />
+                        <Route path="/wallet" element={<Wallet />} />
+                        <Route path="/training" element={<Training />} />
+                        <Route path="/ranking" element={<Ranking />} />
+                        <Route path="/team" element={<TeamPanel />} />
+                        <Route path="/notifications" element={<Notifications />} />
+                        <Route path="/levels" element={<Levels />} />
+                        <Route path="/profile" element={<Profile />} />
+                        <Route path="/tickets" element={<Tickets />} />
+                      </Route>
+                    </Routes>
+                  </Suspense>
               </BrowserRouter>
             </NotificationProvider>
           </FeatureProvider>
