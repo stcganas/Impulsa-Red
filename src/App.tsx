@@ -25,6 +25,8 @@ import Ranking from "./pages/Ranking";
 import TeamPanel from "./pages/TeamPanel";
 import MaintenancePage from "./pages/MaintenancePage";
 import InviteLandingPage from "./pages/InviteLandingPage";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import { UserProvider, useUser } from "./contexts/UserContext";
 import { FeatureProvider } from "./contexts/FeatureContext";
 import { SettingsProvider, useSettings } from "./contexts/SettingsContext";
@@ -209,6 +211,8 @@ export default function App() {
                   <Route path="/onboarding" element={<MaintenanceGuard><Onboarding /></MaintenanceGuard>} />
                   <Route path="/login" element={<MaintenanceGuard><Login /></MaintenanceGuard>} />
                   <Route path="/register" element={<MaintenanceGuard><Register /></MaintenanceGuard>} />
+                  <Route path="/forgot-password" element={<MaintenanceGuard><ForgotPassword /></MaintenanceGuard>} />
+                  <Route path="/reset-password" element={<MaintenanceGuard><ResetPassword /></MaintenanceGuard>} />
                   <Route path="/invite/:referralCode" element={<InviteLandingPage />} />
                   <Route path="/maintenance" element={<MaintenancePage />} />
                   <Route path="/plan-selection" element={<ProtectedRoute><PlanSelection /></ProtectedRoute>} />

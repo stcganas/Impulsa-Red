@@ -87,6 +87,32 @@ export default function TaskManagement() {
     }
   };
 
+  const handleSeedTasks = async () => {
+    if (!window.confirm('¿Deseas sembrar las tareas iniciales recomendadas para la primera semana?')) return;
+    
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      const res = await fetch('/api/admin/tasks/seed', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
+      
+      if (!res.ok) throw new Error('Error seeding tasks');
+      
+      alert('Tareas iniciales sembradas correctamente.');
+      fetchTasks();
+    } catch (error) {
+      console.error('Error seeding tasks:', error);
+      alert('Error al sembrar tareas.');
+      setLoading(false);
+    }
+  };
+
   const fetchTasks = async () => {
     try {
       const { data, error } = await supabase
@@ -258,6 +284,13 @@ export default function TaskManagement() {
           <p className="text-slate-500 dark:text-slate-400 text-sm">Administra las tareas diarias para los usuarios.</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={handleSeedTasks}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 text-blue-500 hover:bg-blue-500 hover:text-white rounded-xl font-bold transition-colors"
+            title="Siembre tareas recomendadas para la primera semana"
+          >
+            <Calendar className="w-4 h-4" /> Sembrar Tareas
+          </button>
           <button
             onClick={deleteAllTasks}
             className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl font-bold transition-colors"

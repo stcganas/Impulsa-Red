@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, Crown, ArrowRight, X, Upload, Loader2, DollarSign, CreditCard } from "lucide-react";
 import { motion } from "framer-motion";
@@ -7,86 +7,102 @@ import { useUser } from "../contexts/UserContext";
 import { useSettings } from "../contexts/SettingsContext";
 import { supabase } from "../lib/supabase";
 
-const plans = [
-  {
-    id: "basic",
-    name: "Básico",
-    price: "$15.000",
-    numericPrice: 15000,
-    baseCommission: "5%",
-    increment: "0.65%",
-    features: [
-      "Acceso a tareas diarias",
-      "Soporte estándar",
-      "Material de marketing básico",
-    ],
-    color: "bg-slate-100",
-    textColor: "text-slate-800",
-    buttonColor: "bg-slate-800 text-white hover:bg-slate-700",
-  },
-  {
-    id: "advanced",
-    name: "Avanzado",
-    price: "$30.000",
-    numericPrice: 30000,
-    baseCommission: "10%",
-    increment: "0.60%",
-    features: [
-      "Todo lo del plan Básico",
-      "Soporte prioritario",
-      "Capacitaciones exclusivas",
-    ],
-    color: "bg-blue-50",
-    textColor: "text-blue-900",
-    buttonColor: "bg-blue-600 text-white hover:bg-blue-700",
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "$60.000",
-    numericPrice: 60000,
-    baseCommission: "20%",
-    increment: "0.50%",
-    features: [
-      "Todo lo del plan Avanzado",
-      "Mentorías grupales",
-      "Herramientas de automatización",
-    ],
-    color: "bg-emerald-50",
-    textColor: "text-emerald-900",
-    buttonColor: "bg-emerald-600 text-white hover:bg-emerald-700",
-  },
-  {
-    id: "elite",
-    name: "Élite",
-    price: "$120.000",
-    numericPrice: 120000,
-    baseCommission: "30%",
-    increment: "0.40%",
-    features: [
-      "Todo lo del plan Pro",
-      "Mentoría 1 a 1",
-      "Eventos VIP presenciales",
-      "Máxima rentabilidad",
-    ],
-    color: "bg-gradient-to-br from-amber-100 to-amber-200",
-    textColor: "text-amber-900",
-    buttonColor:
-      "bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50",
-    isPremium: true,
-  },
-];
+interface Plan {
+  id: string;
+  name: string;
+  price: number;
+  level: number;
+  description: string;
+  features: any[];
+}
 
 export default function PlanSelection() {
   const navigate = useNavigate();
   const { user, refreshUser } = useUser();
   const { settings } = useSettings();
-  const [selectedPlan, setSelectedPlan] = useState<typeof plans[0] | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetchPlans();
+  }, []);
+
+  const fetchPlans = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('plans')
+        .select(`
+          *,
+          plan_features (
+            value,
+            features (
+              key,
+              name,
+              description
+            )
+          )
+        `)
+        .order('price', { ascending: true });
+
+      if (error) throw error;
+      
+      // Filter out the basic plan (price 0) from the selection if they already have it
+      const availablePlans = data?.filter(p => p.price > 0) || [];
+      setPlans(availablePlans);
+    } catch (error) {
+      console.error("Error fetching plans:", error);
+    } finally {
+      setLoadingPlans(false);
+    }
+  };
+
+  const getPlanStyling = (planName: string) => {
+    const name = planName.toLowerCase();
+    if (name.includes('elite') || name.includes('élite')) {
+      return {
+        color: "bg-gradient-to-br from-amber-100 to-amber-200",
+        textColor: "text-amber-900",
+        buttonColor: "bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50",
+        isPremium: true,
+        iconColor: "dark:text-amber-400",
+        iconBg: "dark:from-amber-500/20 dark:to-amber-500/10"
+      };
+    }
+    if (name.includes('pro')) {
+      return {
+        color: "bg-emerald-50",
+        textColor: "text-emerald-900",
+        buttonColor: "bg-emerald-600 text-white hover:bg-emerald-700",
+        isPremium: false,
+        iconColor: "dark:text-emerald-400",
+        iconBg: "dark:bg-emerald-500/10"
+      };
+    }
+    if (name.includes('avanzado')) {
+      return {
+        color: "bg-blue-50",
+        textColor: "text-blue-900",
+        buttonColor: "bg-blue-600 text-white hover:bg-blue-700",
+        isPremium: false,
+        iconColor: "dark:text-blue-400",
+        iconBg: "dark:bg-blue-500/10"
+      };
+    }
+    return {
+      color: "bg-slate-100",
+      textColor: "text-slate-800",
+      buttonColor: "bg-slate-800 text-white hover:bg-slate-700",
+      isPremium: false,
+      iconColor: "dark:text-slate-400",
+      iconBg: "dark:bg-slate-800"
+    };
+  };
 
   const handleSelectPlan = (planId: string) => {
     const plan = plans.find(p => p.id === planId);
@@ -196,12 +212,12 @@ export default function PlanSelection() {
             </button>
 
             <div className="flex items-center gap-4 mb-6">
-              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", selectedPlan.color, selectedPlan.id === 'basic' && 'dark:bg-slate-800', selectedPlan.id === 'advanced' && 'dark:bg-blue-500/10', selectedPlan.id === 'pro' && 'dark:bg-emerald-500/10', selectedPlan.id === 'elite' && 'dark:from-amber-500/20 dark:to-amber-500/10')}>
-                <CreditCard className={cn("w-8 h-8", selectedPlan.textColor, selectedPlan.id === 'basic' && 'dark:text-slate-400', selectedPlan.id === 'advanced' && 'dark:text-blue-400', selectedPlan.id === 'pro' && 'dark:text-emerald-400', selectedPlan.id === 'elite' && 'dark:text-amber-400')} />
+              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", getPlanStyling(selectedPlan.name).color, getPlanStyling(selectedPlan.name).iconBg)}>
+                <CreditCard className={cn("w-8 h-8", getPlanStyling(selectedPlan.name).textColor, getPlanStyling(selectedPlan.name).iconColor)} />
               </div>
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Pagar Plan {selectedPlan.name}</h3>
-                <p className="text-slate-500 dark:text-slate-400 font-medium">Monto a transferir: <span className="text-slate-900 dark:text-white font-bold">{selectedPlan.price} COP</span></p>
+                <p className="text-slate-500 dark:text-slate-400 font-medium">Monto a transferir: <span className="text-slate-900 dark:text-white font-bold">${selectedPlan.price.toLocaleString('es-CO')} COP</span></p>
               </div>
             </div>
 
@@ -297,22 +313,27 @@ export default function PlanSelection() {
       </div>
 
       <div className="px-6 -mt-16 space-y-6 relative z-20">
-        {plans.map((plan) => (
+        {loadingPlans ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+          </div>
+        ) : plans.map((plan) => {
+          const style = getPlanStyling(plan.name);
+          const baseCommission = plan.plan_features?.find((f: any) => f.features?.key === 'commission_level_1')?.value || "0";
+          const increment = plan.plan_features?.find((f: any) => f.features?.key === 'commission_increment')?.value || "0";
+          
+          return (
           <div
             key={plan.id}
             className={cn(
               "rounded-3xl p-6 shadow-xl transition-transform active:scale-[0.98]",
-              plan.color,
-              plan.id === 'basic' && 'dark:bg-slate-800',
-              plan.id === 'advanced' && 'dark:bg-blue-500/10',
-              plan.id === 'pro' && 'dark:bg-emerald-500/10',
-              plan.id === 'elite' && 'dark:from-amber-500/20 dark:to-amber-500/10',
-              plan.isPremium
+              style.color,
+              style.isPremium
                 ? "border-2 border-amber-300 dark:border-amber-500/30 shadow-amber-500/20 dark:shadow-amber-500/5"
                 : "border border-white/50 dark:border-white/5 shadow-slate-200/50 dark:shadow-black/20",
             )}
           >
-            {plan.isPremium && (
+            {style.isPremium && (
               <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 font-bold text-sm uppercase tracking-wider mb-4">
                 <Crown className="w-5 h-5" />
                 <span>Recomendado</span>
@@ -321,19 +342,19 @@ export default function PlanSelection() {
 
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h2 className={cn("text-2xl font-bold mb-1", plan.textColor, plan.id === 'basic' && 'dark:text-slate-300', plan.id === 'advanced' && 'dark:text-blue-400', plan.id === 'pro' && 'dark:text-emerald-400', plan.id === 'elite' && 'dark:text-amber-400')}>
+                <h2 className={cn("text-2xl font-bold mb-1", style.textColor)}>
                   {plan.name}
                 </h2>
                 <div className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                  {plan.price}
+                  ${plan.price.toLocaleString('es-CO')}
                 </div>
               </div>
               <div className="text-right">
                 <div className="text-sm font-medium text-slate-500 dark:text-slate-500 uppercase tracking-wider mb-1">
                   Comisión Base
                 </div>
-                <div className={cn("text-3xl font-black", plan.textColor, plan.id === 'basic' && 'dark:text-slate-300', plan.id === 'advanced' && 'dark:text-blue-400', plan.id === 'pro' && 'dark:text-emerald-400', plan.id === 'elite' && 'dark:text-amber-400')}>
-                  {plan.baseCommission}
+                <div className={cn("text-3xl font-black", style.textColor)}>
+                  {Number(baseCommission) * 100}%
                 </div>
               </div>
             </div>
@@ -344,31 +365,41 @@ export default function PlanSelection() {
                   Incremento por nivel
                 </span>
                 <span className="font-bold text-slate-900 dark:text-white">
-                  +{plan.increment}
+                  +{Number(increment) * 100}%
                 </span>
               </div>
               <div className="w-full bg-slate-200 dark:bg-white/10 rounded-full h-2 mb-1 overflow-hidden">
                 <div
                   className={cn(
                     "h-full rounded-full",
-                    plan.isPremium ? "bg-amber-500" : "bg-blue-500",
+                    style.isPremium ? "bg-amber-500" : "bg-blue-500",
                   )}
-                  style={{ width: plan.baseCommission }}
+                  style={{ width: `${Number(baseCommission) * 100}%` }}
                 />
               </div>
               <div className="flex justify-between text-xs text-slate-500 dark:text-slate-500 font-medium">
-                <span>Nivel 1: {plan.baseCommission}</span>
+                <span>Nivel 1: {Number(baseCommission) * 100}%</span>
                 <span>Nivel 100: 70%</span>
               </div>
             </div>
 
             <ul className="space-y-3 mb-8">
-              {plan.features.map((feature, idx) => (
+              {plan.description && (
+                <li className="flex items-start gap-3">
+                  <div className={cn("mt-0.5 rounded-full p-0.5", style.isPremium ? "bg-amber-200 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400" : "bg-white dark:bg-white/10 text-blue-600 dark:text-blue-400")}>
+                    <Check className="w-4 h-4" />
+                  </div>
+                  <span className="text-slate-700 dark:text-slate-300 font-medium leading-tight">
+                    {plan.description}
+                  </span>
+                </li>
+              )}
+              {plan.plan_features?.map((pf: any, idx: number) => (
                 <li key={idx} className="flex items-start gap-3">
                   <div
                     className={cn(
                       "mt-0.5 rounded-full p-0.5",
-                      plan.isPremium
+                      style.isPremium
                         ? "bg-amber-200 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400"
                         : "bg-white dark:bg-white/10 text-blue-600 dark:text-blue-400",
                     )}
@@ -376,7 +407,7 @@ export default function PlanSelection() {
                     <Check className="w-4 h-4" />
                   </div>
                   <span className="text-slate-700 dark:text-slate-300 font-medium leading-tight">
-                    {feature}
+                    {pf.features?.name}: {pf.value === 'true' ? 'Sí' : pf.value === 'false' ? 'No' : pf.value}
                   </span>
                 </li>
               ))}
@@ -386,15 +417,14 @@ export default function PlanSelection() {
               onClick={() => handleSelectPlan(plan.id)}
               className={cn(
                 "w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2",
-                plan.buttonColor,
-                plan.id === 'basic' && 'dark:bg-blue-600 dark:hover:bg-blue-700'
+                style.buttonColor
               )}
             >
               <span>Elegir {plan.name}</span>
               <ArrowRight className="w-5 h-5" />
             </button>
           </div>
-        ))}
+        )})}
       </div>
     </div>
   );

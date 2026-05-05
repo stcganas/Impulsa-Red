@@ -20,13 +20,21 @@ export default function Login() {
     if (!loading && user) {
       if (user.role === 'admin') {
         console.log("Redirigiendo a /admin");
-        navigate("/admin");
+        navigate("/admin", { replace: true });
       } else {
         console.log("Redirigiendo a /dashboard");
-        navigate("/dashboard");
+        navigate("/dashboard", { replace: true });
       }
     }
   }, [user, loading, navigate]);
+
+  if (loading && !user) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,24 +56,10 @@ export default function Login() {
       }
       
       console.log("Login exitoso, forzando refreshUser...", data.user?.id);
-      const updatedUser = await refreshUser();
+      await refreshUser();
       
       // Trigger LOGIN_STREAK event
       await TaskEngine.triggerEvent('LOGIN_STREAK', 1);
-
-      // Manual redirection as fallback
-      if (data.user) {
-        // We can't easily get the role from data.user, so we wait for refreshUser
-        // or we can just let the useEffect handle it, but let's add a small delay and check
-        setTimeout(() => {
-          if (window.location.pathname === '/login') {
-            // If still on login, force redirect based on what we know
-            // (Admin email check as a quick fallback if profile is slow)
-            if (email === 'ericcharris432@gmail.com') navigate('/admin');
-            else navigate('/dashboard');
-          }
-        }, 1000);
-      }
     } catch (err: any) {
       console.error("Login error:", err);
       setError(err.message);
@@ -126,9 +120,9 @@ export default function Login() {
               />
               <span>Recordarme</span>
             </label>
-            <a href="#" className="text-blue-600 font-medium hover:underline">
+            <Link to="/forgot-password" className="text-blue-600 font-medium hover:underline">
               ¿Olvidaste tu contraseña?
-            </a>
+            </Link>
           </div>
 
           <button

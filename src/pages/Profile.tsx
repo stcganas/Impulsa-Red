@@ -35,6 +35,7 @@ export default function Profile() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
+    name: user?.name || "",
     phone: user?.phone || "",
     address: user?.address || ""
   });
@@ -160,6 +161,7 @@ export default function Profile() {
       const { error } = await supabase
         .from('users')
         .update({
+          name: formData.name,
           phone: formData.phone,
           address: formData.address
         })
@@ -213,6 +215,20 @@ export default function Profile() {
               </div>
 
               <form onSubmit={handleSaveProfile} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Nombre Completo</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 dark:text-slate-600" />
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-900 dark:text-white"
+                      placeholder="Tu nombre completo"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-1">Teléfono</label>
                   <div className="relative">

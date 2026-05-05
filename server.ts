@@ -96,6 +96,7 @@ if (supabaseUrl && supabaseServiceKey) {
       CREATE TABLE IF NOT EXISTS public.tasks (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
         name text,
+        day text DEFAULT '1',
         xp integer DEFAULT 0,
         type text DEFAULT 'daily',
         created_at timestamp with time zone DEFAULT now()
@@ -158,10 +159,17 @@ if (supabaseUrl && supabaseServiceKey) {
 
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS plan_id uuid REFERENCES public.plans(id);
       
-      -- Seed Default Plan
+      -- Seed Default Plans
       INSERT INTO public.plans (id, name, price, level, description)
-      VALUES ('00000000-0000-0000-0000-000000000000', 'Básico', 0, 1, 'Plan básico gratuito')
-      ON CONFLICT (id) DO NOTHING;
+      VALUES 
+        ('00000000-0000-0000-0000-000000000000', 'Básico', 15000, 1, 'Plan ideal para empezar a construir tu red.'),
+        ('11111111-1111-1111-1111-111111111111', 'Avanzado', 30000, 2, 'Para usuarios que buscan mayor rentabilidad y herramientas.'),
+        ('22222222-2222-2222-2222-222222222222', 'Pro', 60000, 3, 'El equilibrio perfecto entre inversión y beneficios exponenciales.'),
+        ('33333333-3333-3333-3333-333333333333', 'Élite', 120000, 4, 'Máxima rentabilidad, soporte VIP y acceso total a la plataforma.')
+      ON CONFLICT (id) DO UPDATE SET 
+        name = EXCLUDED.name, 
+        price = EXCLUDED.price, 
+        description = EXCLUDED.description;
 
       -- Assign default plan to users without one
       UPDATE public.users SET plan_id = '00000000-0000-0000-0000-000000000000' WHERE plan_id IS NULL;
@@ -169,15 +177,61 @@ if (supabaseUrl && supabaseServiceKey) {
       -- Seed Default Features
       INSERT INTO public.features (key, name, description, default_value)
       VALUES 
-        ('max_referrals', 'Máximo de Referidos', 'Número máximo de personas que puedes referir', '1000000'),
         ('commission_level_1', 'Comisión Nivel 1', 'Porcentaje de comisión por referidos directos', '0.05'),
-        ('commission_level_2', 'Comisión Nivel 2', 'Porcentaje de comisión por referidos de nivel 2', '0.02'),
-        ('can_create_team', 'Crear Equipo', 'Permite crear y gestionar un equipo propio', 'false'),
-        ('has_advanced_stats', 'Estadísticas Avanzadas', 'Acceso a gráficos y métricas detalladas', 'false'),
-        ('whatsapp_boost', 'WhatsApp Boost', 'Aumenta la visibilidad en WhatsApp', 'false')
-      ON CONFLICT (key) DO NOTHING;
+        ('commission_increment', 'Incremento por Nivel', 'Aumento de comisión por cada nivel subido', '0.0065'),
+        ('max_referrals', 'Máximo de Referidos', 'Número máximo de personas que puedes referir', '1000000'),
+        ('support_type', 'Tipo de Soporte', 'Nivel de atención al cliente', '"Estándar"'),
+        ('marketing_material', 'Material de Marketing', 'Acceso a recursos para promocionar', '"Básico"'),
+        ('mentorship', 'Mentorías', 'Acceso a sesiones de mentoría', '"No"'),
+        ('automation_tools', 'Herramientas de Automatización', 'Uso de bots y herramientas automáticas', '"No"'),
+        ('vip_events', 'Eventos VIP', 'Acceso a eventos presenciales exclusivos', '"No"')
+      ON CONFLICT (key) DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description;
+
+      -- Seed Plan Features (We need to link them, but since we don't know the feature IDs easily in raw SQL without a DO block, we can do it via a quick script or just leave the features to be configured via the admin panel. Let's use a DO block to seed plan features)
+      DO $$
+      DECLARE
+        f_comm1 uuid; f_inc uuid; f_supp uuid; f_mkt uuid; f_ment uuid; f_auto uuid; f_vip uuid;
+      BEGIN
+        SELECT id INTO f_comm1 FROM public.features WHERE key = 'commission_level_1';
+        SELECT id INTO f_inc FROM public.features WHERE key = 'commission_increment';
+        SELECT id INTO f_supp FROM public.features WHERE key = 'support_type';
+        SELECT id INTO f_mkt FROM public.features WHERE key = 'marketing_material';
+        SELECT id INTO f_ment FROM public.features WHERE key = 'mentorship';
+        SELECT id INTO f_auto FROM public.features WHERE key = 'automation_tools';
+        SELECT id INTO f_vip FROM public.features WHERE key = 'vip_events';
+
+        -- Básico
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('00000000-0000-0000-0000-000000000000', f_comm1, '"0.05"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('00000000-0000-0000-0000-000000000000', f_inc, '"0.0065"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('00000000-0000-0000-0000-000000000000', f_supp, '"Estándar"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('00000000-0000-0000-0000-000000000000', f_mkt, '"Básico"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+
+        -- Avanzado
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('11111111-1111-1111-1111-111111111111', f_comm1, '"0.10"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('11111111-1111-1111-1111-111111111111', f_inc, '"0.0060"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('11111111-1111-1111-1111-111111111111', f_supp, '"Prioritario"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('11111111-1111-1111-1111-111111111111', f_mkt, '"Avanzado"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+
+        -- Pro
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('22222222-2222-2222-2222-222222222222', f_comm1, '"0.20"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('22222222-2222-2222-2222-222222222222', f_inc, '"0.0050"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('22222222-2222-2222-2222-222222222222', f_supp, '"Prioritario"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('22222222-2222-2222-2222-222222222222', f_ment, '"Grupales"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('22222222-2222-2222-2222-222222222222', f_auto, '"Sí"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+
+        -- Élite
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_comm1, '"0.30"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_inc, '"0.0040"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_supp, '"VIP 24/7"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_ment, '"1 a 1"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_auto, '"Sí Avanzado"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+        INSERT INTO public.plan_features (plan_id, feature_id, value) VALUES ('33333333-3333-3333-3333-333333333333', f_vip, '"Sí"') ON CONFLICT (plan_id, feature_id) DO UPDATE SET value = EXCLUDED.value;
+      END $$;
       
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS type text DEFAULT 'daily';
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS day text DEFAULT '1';
 
       CREATE TABLE IF NOT EXISTS public.settings (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -438,11 +492,11 @@ async function startServer() {
       if (refProfile) {
         const xpGained = Math.floor(100 * multiplier);
         const newXp = (refProfile.xp || 0) + xpGained;
-        let newLevel = refProfile.level || 1;
+        let newLevel = Math.floor(newXp / 1000) + 1;
+        if (newLevel > 100) newLevel = 100;
         let newPercentage = refProfile.percentage;
 
-        if (newXp >= newLevel * 1000) {
-          newLevel += 1;
+        if (newLevel > (refProfile.level || 1)) {
           newPercentage = calculatePercentage(newLevel, refProfile.plan || 'Básico');
         }
 
@@ -461,11 +515,11 @@ async function startServer() {
         if (ref2Profile) {
           const xpGained2 = 50;
           const newXp2 = (ref2Profile.xp || 0) + xpGained2;
-          let newLevel2 = ref2Profile.level || 1;
+          let newLevel2 = Math.floor(newXp2 / 1000) + 1;
+          if (newLevel2 > 100) newLevel2 = 100;
           let newPercentage2 = ref2Profile.percentage;
 
-          if (newXp2 >= newLevel2 * 1000) {
-            newLevel2 += 1;
+          if (newLevel2 > (ref2Profile.level || 1)) {
             newPercentage2 = calculatePercentage(newLevel2, ref2Profile.plan || 'Básico');
           }
 
@@ -833,14 +887,13 @@ async function startServer() {
 
       if (profile) {
         const newXp = (profile.xp || 0) + xpReward;
-        let newLevel = profile.level || 1;
+        let newLevel = Math.floor(newXp / 1000) + 1;
+        if (newLevel > 100) newLevel = 100;
         let newPercentage = profile.percentage || 0;
-        let leveledUp = false;
+        let leveledUp = newLevel > (profile.level || 1);
 
-        if (newXp >= newLevel * 1000) {
-          newLevel += 1;
+        if (leveledUp) {
           newPercentage = calculatePercentage(newLevel, profile.plan || 'Básico');
-          leveledUp = true;
         }
 
         await supabase
@@ -919,14 +972,13 @@ async function startServer() {
 
       const xpGained = task.xp || 100;
       const newXp = (profile.xp || 0) + xpGained;
-      let newLevel = profile.level || 1;
-      let leveledUp = false;
+      let newLevel = Math.floor(newXp / 1000) + 1;
+      if (newLevel > 100) newLevel = 100;
+      let leveledUp = newLevel > (profile.level || 1);
       let newPercentage = profile.percentage;
 
-      // Level up logic (every 1000 XP)
-      if (newXp >= newLevel * 1000) {
-        newLevel += 1;
-        leveledUp = true;
+      // Level up logic
+      if (leveledUp) {
         newPercentage = calculatePercentage(newLevel, profile.plan || 'Básico');
       }
 
@@ -999,8 +1051,7 @@ async function startServer() {
       let updateData: any = { xp: newXp, level: newLevel };
       
       if (leveledUp) {
-        const basePercentage = profile.plan === 'Élite' ? 3.0 : (profile.plan === 'Pro' ? 2.0 : (profile.plan === 'Avanzado' ? 1.5 : 1.0));
-        updateData.percentage = basePercentage + (newLevel * 0.1);
+        updateData.percentage = calculatePercentage(newLevel, profile.plan || 'Básico');
       }
 
       const { error: updateError } = await supabase
@@ -1171,15 +1222,14 @@ async function startServer() {
 
       const { planId, receiptUrl } = req.body;
       
-      const plans = {
-        'basic': { name: 'Básico', price: 15000, percentage: 5 },
-        'advanced': { name: 'Avanzado', price: 30000, percentage: 10 },
-        'pro': { name: 'Pro', price: 60000, percentage: 20 },
-        'elite': { name: 'Élite', price: 120000, percentage: 30 }
-      };
+      // Fetch plan from database
+      const { data: selectedPlan, error: planError } = await supabase
+        .from('plans')
+        .select('*')
+        .eq('id', planId)
+        .single();
 
-      const selectedPlan = plans[planId as keyof typeof plans];
-      if (!selectedPlan) {
+      if (planError || !selectedPlan) {
         return res.status(400).json({ error: 'Plan inválido' });
       }
 
@@ -1289,16 +1339,18 @@ async function startServer() {
         // 1. Identify plan from amount or metadata
         const amount = Math.abs(tx.amount);
         let planName = 'Básico';
+        let planId = null;
         
         // Try to find plan in database by amount
         const { data: planData } = await supabase
           .from('plans')
-          .select('name')
+          .select('id, name')
           .eq('price', amount)
           .single();
 
         if (planData) {
           planName = planData.name;
+          planId = planData.id;
         } else {
           // Fallback to hardcoded logic if plan not found in table
           if (amount >= 120000) { planName = 'Élite'; }
@@ -1309,12 +1361,17 @@ async function startServer() {
         const newPercentage = calculatePercentage(userLevel, planName);
 
         // 2. Update user plan
+        const updateData: any = {
+          plan: planName,
+          percentage: newPercentage
+        };
+        if (planId) {
+          updateData.plan_id = planId;
+        }
+
         const { error: userUpdateError } = await supabase
           .from('users')
-          .update({ 
-            plan: planName,
-            percentage: newPercentage
-          })
+          .update(updateData)
           .eq('id', tx.user_id);
 
         if (userUpdateError) throw userUpdateError;
@@ -1387,11 +1444,11 @@ async function startServer() {
               if (refProfile) {
                 const xpGained = 500; // +500 XP
                 const newXp = (refProfile.xp || 0) + xpGained;
-                let newLevel = refProfile.level || 1;
+                let newLevel = Math.floor(newXp / 1000) + 1;
+                if (newLevel > 100) newLevel = 100;
                 let newPercentage = refProfile.percentage;
 
-                if (newXp >= newLevel * 1000) {
-                  newLevel += 1;
+                if (newLevel > (refProfile.level || 1)) {
                   newPercentage = calculatePercentage(newLevel, refProfile.plan || 'Básico');
                 }
 
@@ -1571,19 +1628,38 @@ async function startServer() {
         : 0;
 
       // Fetch recent transactions
-      const { data: recentTxs } = await supabase
+      const { data: recentTxs, error: txsError } = await supabase
         .from('transactions')
         .select(`
           id,
           type,
           amount,
           created_at,
-          users!transactions_user_id_fkey (
-            name
-          )
+          user_id
         `)
         .order('created_at', { ascending: false })
         .limit(5);
+
+      if (txsError) {
+        console.error("Error fetching recent transactions:", txsError);
+      }
+
+      // Fetch user names for recent transactions manually to avoid join issues
+      let recentActivity = [];
+      if (recentTxs && recentTxs.length > 0) {
+        const userIds = [...new Set(recentTxs.map((tx: any) => tx.user_id))];
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('id, name')
+          .in('id', userIds);
+        
+        const userMap = new Map(usersData?.map((u: any) => [u.id, u.name]) || []);
+        
+        recentActivity = recentTxs.map((tx: any) => ({
+          ...tx,
+          users: { name: userMap.get(tx.user_id) || "Usuario" }
+        }));
+      }
 
       // Fetch Pending Tickets
       const { count: ticketCount } = await supabase
@@ -1596,11 +1672,68 @@ async function startServer() {
         activeUsers: activeUsersCount || 0,
         totalTransactions,
         totalVolume,
-        recentActivity: recentTxs || [],
+        recentActivity: recentActivity,
         pendingTickets: ticketCount || 0
       });
     } catch (error: any) {
       console.error("Error in /api/admin/dashboard-data:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Admin: Send Global Notification
+  app.post('/api/admin/notifications/global', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(401).json({ error: 'No autorizado' });
+      
+      const token = authHeader.split(' ')[1];
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Token inválido' });
+
+      // Verify admin role
+      const { data: userData } = await supabase.from('users').select('role').eq('id', user.id).single();
+      if (userData?.role !== 'admin') {
+        return res.status(403).json({ error: 'No tienes permisos de administrador' });
+      }
+
+      const { title, message, type, targetRole } = req.body;
+      if (!title || !message) {
+        return res.status(400).json({ error: 'Título y mensaje son requeridos' });
+      }
+
+      // Fetch users to notify
+      let query = supabase.from('users').select('id');
+      if (targetRole && targetRole !== 'todos') {
+        query = query.eq('role', targetRole);
+      }
+      
+      const { data: targetUsers, error: usersError } = await query;
+      if (usersError) throw usersError;
+
+      if (!targetUsers || targetUsers.length === 0) {
+        return res.json({ success: true, count: 0, message: 'No hay usuarios que coincidan con el filtro' });
+      }
+
+      // Prepare notifications
+      const notifications = targetUsers.map(u => ({
+        user_id: u.id,
+        title,
+        message,
+        type: type || 'info'
+      }));
+
+      // Insert in batches of 100 to avoid limits
+      const batchSize = 100;
+      for (let i = 0; i < notifications.length; i += batchSize) {
+        const batch = notifications.slice(i, i + batchSize);
+        const { error: insertError } = await supabase.from('notifications').insert(batch);
+        if (insertError) throw insertError;
+      }
+
+      res.json({ success: true, count: notifications.length });
+    } catch (error: any) {
+      console.error("Error sending global notification:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -2029,13 +2162,12 @@ async function startServer() {
       if (profile) {
         const xpGained = penaltyTask.xp || 50;
         const newXp = (profile.xp || 0) + xpGained;
-        let newLevel = profile.level || 1;
-        let leveledUp = false;
+        let newLevel = Math.floor(newXp / 1000) + 1;
+        if (newLevel > 100) newLevel = 100;
+        let leveledUp = newLevel > (profile.level || 1);
         let newPercentage = profile.percentage;
 
-        if (newXp >= newLevel * 1000) {
-          newLevel += 1;
-          leveledUp = true;
+        if (leveledUp) {
           // Recalculate percentage
           newPercentage = calculatePercentage(newLevel, profile.plan || 'Básico');
         }
@@ -2373,7 +2505,7 @@ async function startServer() {
       const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single();
       if (profile?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
 
-      const { day, name, xp, type } = req.body;
+      const { day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
 
       // Check if limit of 10 tasks per day is reached
       if (type === 'daily') {
@@ -2389,7 +2521,17 @@ async function startServer() {
         }
       }
 
-      const { data, error } = await supabase.from('tasks').insert([{ day, name, xp, type: type || 'daily' }]).select();
+      const { data, error } = await supabase.from('tasks').insert([{ 
+        day, 
+        name, 
+        xp, 
+        type: type || 'daily',
+        title: title || name,
+        description,
+        conditions: conditions || {},
+        xp_reward: xp_reward || xp,
+        is_active: is_active !== false
+      }]).select();
       if (error) {
         console.error('Supabase error creating task:', JSON.stringify(error, null, 2));
         throw error;
@@ -2398,6 +2540,40 @@ async function startServer() {
     } catch (error) {
       console.error('Error creating task:', error);
       res.status(500).json({ error: 'Error al crear la tarea' });
+    }
+  });
+
+  app.post('/api/admin/tasks/seed', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+      const token = authHeader.split(' ')[1];
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) return res.status(401).json({ error: 'Invalid token' });
+
+      const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single();
+      if (profile?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+
+      const initialTasks = [
+        { day: '1', name: 'Configura tu Perfil Financiero', xp: 100, type: 'daily', description: 'Completa todos tus datos en la sección de perfil para empezar con pie derecho.', is_active: true },
+        { day: '2', name: 'Invita a tu primer Socio', xp: 200, type: 'daily', description: 'Usa tu código de referido para invitar a alguien a la plataforma.', is_active: true },
+        { day: '3', name: 'Mira el Video de Bienvenida', xp: 150, type: 'daily', description: 'Aprende los conceptos básicos de nuestra red financiera en el video introductorio.', is_active: true },
+        { day: '4', name: 'Únete al Canal de Estrategias', xp: 100, type: 'daily', description: 'Mantente al día con las últimas estrategias uniéndote a nuestro canal oficial.', is_active: true },
+        { day: '5', name: 'Comparte tu Link en Redes', xp: 150, type: 'daily', description: 'Aumenta tu alcance compartiendo tu link de invitación en tus redes sociales.', is_active: true },
+        { day: '6', name: 'Completa el Módulo 1 de Entrenamiento', xp: 250, type: 'daily', description: 'Finaliza la primera lección de nuestro curso de crecimiento financiero.', is_active: true },
+        { day: '7', name: 'Alcanza 3 Referidos Activos', xp: 500, type: 'daily', description: 'Consigue que 3 de tus invitados activen su primer plan.', is_active: true },
+        { day: '1', name: 'Invita a 5 personas esta semana', xp: 1000, type: 'weekly', description: 'Demuestra tu liderazgo invitando a 5 nuevos socios esta semana.', is_active: true },
+        { day: '1', name: 'Completa todas las tareas diarias', xp: 1500, type: 'weekly', description: 'Mantén la disciplina y completa las 7 tareas diarias de la semana.', is_active: true }
+      ];
+
+      // Insert tasks
+      const { error } = await supabase.from('tasks').insert(initialTasks);
+      if (error) throw error;
+
+      res.json({ success: true, message: 'Tareas iniciales sembradas correctamente' });
+    } catch (error) {
+      console.error('Error seeding tasks:', error);
+      res.status(500).json({ error: 'Error al sembrar tareas' });
     }
   });
 
@@ -2413,8 +2589,18 @@ async function startServer() {
       if (profile?.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
 
       const { id } = req.params;
-      const { day, name, xp, type } = req.body;
-      const { data, error } = await supabase.from('tasks').update({ day, name, xp, type }).eq('id', id).select();
+      const { day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
+      const { data, error } = await supabase.from('tasks').update({ 
+        day, 
+        name, 
+        xp, 
+        type,
+        title,
+        description,
+        conditions,
+        xp_reward,
+        is_active
+      }).eq('id', id).select();
       if (error) throw error;
       res.json({ success: true, data });
     } catch (error) {

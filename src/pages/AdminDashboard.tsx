@@ -36,6 +36,7 @@ import PlanManager from "../components/admin/PlanManager";
 import FeatureManager from "../components/admin/FeatureManager";
 import PlanFeatureEditor from "../components/admin/PlanFeatureEditor";
 import NotificationSettings from "../components/NotificationSettings";
+import GlobalNotificationSender from "../components/admin/GlobalNotificationSender";
 
 interface AdminStats {
   totalUsers: number;
@@ -412,9 +413,12 @@ export default function AdminDashboard() {
           )}
           {activeTab === "Configuración" && <SettingsManagement />}
           {activeTab === "Notificaciones" && (
-            <div className="max-w-2xl mx-auto">
-              <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Configuración de Notificaciones en Vivo</h2>
-              <NotificationSettings />
+            <div className="max-w-3xl mx-auto space-y-12">
+              <GlobalNotificationSender />
+              <div>
+                <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Configuración de Notificaciones en Vivo</h2>
+                <NotificationSettings />
+              </div>
             </div>
           )}
 
