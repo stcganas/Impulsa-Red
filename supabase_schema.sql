@@ -6,6 +6,7 @@ ALTER TABLE public.users ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS address text;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url text;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS referred_by uuid REFERENCES public.users(id);
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS push_token text;
 
 -- 2. Crear tabla 'tasks'
 CREATE TABLE IF NOT EXISTS public.tasks (

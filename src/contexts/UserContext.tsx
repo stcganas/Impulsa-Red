@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
 export interface User {
   id: string;
@@ -48,7 +49,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return null;
     }
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !localStorage.getItem('impulsa_user'));
   const [error, setError] = useState<string | null>(null);
   const refreshPromise = useRef<Promise<void> | null>(null);
 
@@ -57,163 +58,86 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('impulsa_user');
       await supabase.auth.signOut();
       setUser(null);
-      // Ensure redirection to homepage after logout
-      window.location.href = "/";
+      toast.success("Sesión cerrada correctamente", { position: 'top-center' });
     } catch (err) {
       console.error('Error logging out', err);
-      // Still clear user and redirect even if signOut fails
       localStorage.removeItem('impulsa_user');
       setUser(null);
-      window.location.href = "/";
+      toast.success("Sesión cerrada correctamente", { position: 'top-center' });
     }
   }, []);
 
-  const refreshUser = useCallback(async () => {
-    console.log("refreshUser called, current loading state:", loading);
+  const refreshUser = useCallback(async (token?: string) => {
     if (refreshPromise.current) {
-      console.log("Ya hay un refreshUser en curso, esperando...");
       return refreshPromise.current;
     }
 
     refreshPromise.current = (async () => {
-      // If we already have a cached user, we don't necessarily need to set loading to true
-      // unless it's the first load or we want to force a refresh indicator
-      if (!user) setLoading(true);
+      // Use a functional check or a ref if we need the current user state without triggering re-renders
+      setLoading(prevLoading => {
+        // If we already have a user in state or a token, we don't show the global loader
+        // except when explicitly starting with nothing.
+        // We can check the current user using the state variable from the outer scope
+        // but to avoid the dependency, we can use the localStorage as a proxy or just rely on the initial state.
+        return prevLoading; 
+      });
       
       setError(null);
-      console.log("Iniciando refreshUser...");
       
       try {
         if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-          throw new Error("Faltan las credenciales de Supabase. Por favor, configúralas en el panel de Secrets.");
+          throw new Error("Faltan las credenciales de Supabase.");
         }
 
-        console.log("Fetching user session with timeout...");
+        let authToken = token;
         
-        // Add timeout to getSession
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<any>((_, reject) => 
-          setTimeout(() => reject(new Error("Timeout al obtener sesión de Supabase")), 15000)
-        );
-
-        const { data: { session }, error: sessionError } = await Promise.race([
-          sessionPromise,
-          timeoutPromise
-        ]);
-        
-        console.log("Session check result:", { hasSession: !!session, sessionError });
-        
-        if (sessionError) {
-          console.error("Error de sesión de Supabase:", sessionError);
-          throw sessionError;
+        if (!authToken) {
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
+          if (!session?.user) {
+            localStorage.removeItem('impulsa_user');
+            setUser(null);
+            return;
+          }
+          authToken = session.access_token;
         }
-        
-        if (!session?.user) {
-          console.log("No hay sesión activa en Supabase");
+
+        // Fetch user profile
+        const profileResponse = await fetch('/api/account/data', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (!profileResponse.ok) {
+          if (profileResponse.status === 401) {
+            localStorage.removeItem('impulsa_user');
+            setUser(null);
+            await supabase.auth.signOut();
+            return;
+          }
+          throw new Error(`Error del servidor (${profileResponse.status})`);
+        }
+
+        const profile = await profileResponse.json();
+        localStorage.setItem('impulsa_user', JSON.stringify(profile));
+        setUser(profile as User);
+      } catch (err: any) {
+        let errorMessage = err.message || 'Error de conexión';
+        if (errorMessage.includes('Auth session missing') || 
+            errorMessage.includes('Sesión expirada') ||
+            errorMessage.includes('invalid refresh token')) {
           localStorage.removeItem('impulsa_user');
           setUser(null);
           return;
         }
-
-        console.log("Sesión activa para:", session.user.email);
-        console.log("Iniciando fetch a /api/account/data...");
-
-        // Add a timeout to the fetch call
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-        try {
-          // Fetch user profile from our backend API to bypass RLS recursion issues
-          const profileResponse = await fetch('/api/account/data', {
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`
-            },
-            signal: controller.signal
-          }).catch(err => {
-            if (err.name === 'AbortError') {
-              throw new Error("La solicitud de datos de usuario excedió el tiempo de espera (30s)");
-            }
-            console.warn("Fetch error (network level):", err.message);
-            throw new Error(`Error de red al conectar con el servidor: ${err.message}`);
-          });
-
-          clearTimeout(timeoutId);
-          console.log("Profile response received:", { 
-            status: profileResponse.status, 
-            statusText: profileResponse.statusText,
-            ok: profileResponse.ok 
-          });
-
-          if (!profileResponse.ok) {
-            let errorMessage = `Error del servidor (${profileResponse.status})`;
-            try {
-              const profileError = await profileResponse.json();
-              console.error("Error de API al obtener perfil:", profileError);
-              
-              // If it's an auth error, the session is definitely invalid
-              if (profileResponse.status === 401) {
-                const errorText = profileError.error || 'Unauthorized';
-                console.warn(`Auth error (401) detected: ${errorText}. Cleaning up...`);
-                
-                // Clear state
-                localStorage.removeItem('impulsa_user');
-                setUser(null);
-                
-                // Also sign out from supabase to be sure
-                try {
-                  await supabase.auth.signOut();
-                  console.log("Supabase signOut completed after 401");
-                } catch (soError) {
-                  console.error("Error during Supabase signOut:", soError);
-                }
-              }
-              
-              errorMessage = profileError.error || profileError.message || profileError.details || errorMessage;
-            } catch (e) {
-              console.warn("No se pudo parsear el error JSON del perfil:", e);
-            }
-            
-            throw new Error(errorMessage);
-          }
-
-          const profile = await profileResponse.json();
-          console.log("Perfil obtenido exitosamente desde API:", profile.role);
-
-          // Save to localStorage for next time
-          localStorage.setItem('impulsa_user', JSON.stringify(profile));
-          setUser(profile as User);
-        } catch (fetchErr: any) {
-          clearTimeout(timeoutId);
-          throw fetchErr;
-        }
-      } catch (err: any) {
-        let errorMessage = err.message || 'Error de conexión';
-        if (errorMessage === 'Failed to fetch' || errorMessage.includes('Failed to fetch')) {
-          errorMessage = 'No se pudo conectar con el servidor. Verifica tu conexión a internet o la configuración de Supabase.';
-          console.warn("Advertencia en refreshUser (Red/Supabase):", errorMessage);
-        } else {
-          console.error("Error crítico en refreshUser:", err);
-        }
-
-        // Don't show "Lock broken" as a user-facing error if possible
-        if (err.message?.includes('steal')) {
-          console.warn("Refresh lock stolen, ignoring this specific error.");
-          return;
-        }
-        
         setError(errorMessage);
-        // If we have a cached user but refresh fails, we might want to keep the cached user
-        // but show an error indicator. For now, we'll keep the user if it exists.
-        if (!user) setUser(null);
       } finally {
-        console.log("Finalizando refreshUser, loading=false. Error state:", error);
         setLoading(false);
         refreshPromise.current = null;
       }
     })();
 
     return refreshPromise.current;
-  }, [user]);
+  }, []); // Remove user dependency
 
   useEffect(() => {
     refreshUser();

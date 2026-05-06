@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, ArrowRight } from "lucide-react";
+import { toast } from "sonner";
 import { useUser } from "../contexts/UserContext";
 import Logo from "../components/Logo";
 import { supabase } from "../lib/supabase";
+import { motion, AnimatePresence } from "motion/react";
 
 import { TaskEngine } from "../utils/TaskEngine";
 
@@ -14,26 +16,93 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
 
   useEffect(() => {
-    console.log("Login state check:", { loading, hasUser: !!user, role: user?.role });
+    console.log("Login state check:", { loading, hasUser: !!user, role: user?.role, showSplash, isLoading });
+    let timeoutId: NodeJS.Timeout;
+    
+    // Evitamos el redirect automático por onAuthStateChanged si estamos en medio del proceso de login
+    if (isLoading) return;
+
     if (!loading && user) {
-      if (user.role === 'admin') {
-        console.log("Redirigiendo a /admin");
-        navigate("/admin", { replace: true });
+      if (showSplash) {
+        timeoutId = setTimeout(() => {
+          if (user.role === 'admin') {
+            navigate("/admin", { replace: true });
+          } else {
+            navigate("/dashboard", { replace: true });
+          }
+        }, 50); // Mínima demora para asegurar que el estado se procese
       } else {
-        console.log("Redirigiendo a /dashboard");
-        navigate("/dashboard", { replace: true });
+        if (user.role === 'admin') {
+          navigate("/admin", { replace: true });
+        } else {
+          navigate("/dashboard", { replace: true });
+        }
       }
     }
-  }, [user, loading, navigate]);
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [user, loading, navigate, showSplash, isLoading]);
 
+  if (isLoading || showSplash) {
+    return (
+      <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0a0a0a] text-slate-900 dark:text-white px-6 py-12 justify-center items-center">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.2 }}
+          className="flex flex-col items-center"
+        >
+          <Logo size="xl" className="mb-8" />
+          <motion.h2 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: 0.05 }}
+            className="text-3xl font-bold mb-3 text-center tracking-tight text-slate-900 dark:text-white"
+          >
+            {!showSplash && isLoading ? "Iniciando sesión..." : "¡Bienvenido!"}
+          </motion.h2>
+          <motion.p 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: 0.1 }}
+            className="text-slate-500 text-lg mb-8"
+          >
+            {!showSplash && isLoading ? "Verificando datos..." : "Entrando al sistema..."}
+          </motion.p>
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.15 }}
+            className="h-1 bg-slate-200 dark:bg-slate-800 rounded-full w-48 overflow-hidden"
+          >
+            <motion.div 
+              initial={{ x: "-100%" }}
+              animate={{ x: "100%" }}
+              transition={{ repeat: Infinity, duration: 0.6, ease: "linear" }}
+              className="h-full bg-blue-500 rounded-full w-1/2"
+            />
+          </motion.div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // Si ya tenemos usuario pero no Splash (ej: el usuario vuelve a entrar a /login), redirigimos rápido
   if (loading && !user) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0a] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
+  }
+
+  if (user && !showSplash) {
+    return null; // El useEffect se encarga de redirigir instantáneamente
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -51,16 +120,17 @@ export default function Login() {
       if (signInError) {
         console.error("Error de Supabase Auth (Completo):", signInError);
         const errorMsg = signInError.message || (typeof signInError === 'object' ? JSON.stringify(signInError) : String(signInError));
-        throw new Error(errorMsg === 'Invalid login credentials' 
-          ? 'Credenciales inválidas: Verifica tu correo y contraseña' 
+        throw new Error(errorMsg.includes('Invalid login credentials') 
+          ? 'Contraseña incorrecta o el correo no existe. Verifica tus datos e inténtalo de nuevo.' 
           : errorMsg);
       }
       
       console.log("Login exitoso, forzando refreshUser...", data.user?.id);
-      await refreshUser();
+      setShowSplash(true);
+      await refreshUser(data.session?.access_token);
       
-      // Trigger LOGIN_STREAK event
-      await TaskEngine.triggerEvent('LOGIN_STREAK', 1);
+      // Trigger LOGIN_STREAK event in background
+      TaskEngine.triggerEvent('LOGIN_STREAK', 1).catch(err => console.error("Event error:", err));
     } catch (err: any) {
       console.error("Login catch error:", err);
       // Detailed error reporting

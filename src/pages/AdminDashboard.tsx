@@ -39,6 +39,8 @@ import FeatureManager from "../components/admin/FeatureManager";
 import PlanFeatureEditor from "../components/admin/PlanFeatureEditor";
 import NotificationSettings from "../components/NotificationSettings";
 import GlobalNotificationSender from "../components/admin/GlobalNotificationSender";
+import NotificationScheduler from "../components/admin/NotificationScheduler";
+import CustomNotificationScheduler from "../components/admin/CustomNotificationScheduler";
 import SystemManagement from "../components/SystemManagement";
 
 interface AdminStats {
@@ -81,11 +83,17 @@ export default function AdminDashboard() {
         if (!session) return;
 
         const statsRes = await fetch('/api/admin/dashboard-data', {
-          headers: { 'Authorization': `Bearer ${session.access_token}` }
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          // No cache to ensure we get fresh data
+          cache: 'no-store'
         }).catch(err => {
-          console.error("Network error fetching admin stats:", err);
-          throw new Error(`Error de red: ${err.message}`);
+          console.warn("Network error fetching admin stats (server may be restarting):", err);
+          return null;
         });
+
+        if (!statsRes) {
+          return; // Stop execution if it's a network error, don't crash
+        }
 
         if (!statsRes.ok) {
           const text = await statsRes.text();
@@ -140,8 +148,11 @@ export default function AdminDashboard() {
           // Fetch System Status
           const statusRes = await fetch('/api/admin/system-status', {
             headers: { 'Authorization': `Bearer ${session.access_token}` }
+          }).catch(err => {
+             console.warn("Network error for system status:", err);
+             return null;
           });
-          if (statusRes.ok) {
+          if (statusRes && statusRes.ok) {
             const statusData = await statusRes.json();
             setSystemStatus(statusData);
           }
@@ -469,8 +480,18 @@ export default function AdminDashboard() {
           )}
           {activeTab === "Configuración" && <SettingsManagement />}
           {activeTab === "Notificaciones" && (
-            <div className="max-w-3xl mx-auto space-y-12">
+            <div className="max-w-4xl mx-auto space-y-12">
               <GlobalNotificationSender />
+              
+              <div className="space-y-6">
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Programación Avanzada</h2>
+                  <p className="text-sm text-slate-500">Gestiona envíos automáticos y personalizados</p>
+                </div>
+                <CustomNotificationScheduler />
+                <NotificationScheduler />
+              </div>
+
               <div>
                 <h2 className="text-2xl font-bold mb-6 text-slate-900 dark:text-white">Configuración de Notificaciones en Vivo</h2>
                 <NotificationSettings />

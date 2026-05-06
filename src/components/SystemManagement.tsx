@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Database, Cpu, Globe, RefreshCcw, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface SystemStatus {
   database: 'up' | 'down';
@@ -15,7 +16,37 @@ export default function SystemManagement() {
   const fetchStatus = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/admin/system-status');
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const response = await fetch('/api/admin/system-status', { headers }).catch(err => {
+        console.warn("Network error fetching system status (server may be down):", err);
+        return null;
+      });
+      
+      if (!response) {
+        setStatus({
+          database: 'down',
+          gemini_api: 'down',
+          auth: 'down',
+          auth_server: 'down',
+          storage: 'down',
+          server: 'down',
+          timestamp: new Date().toISOString(),
+          env: 'unknown'
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       setStatus(data);
     } catch (error) {

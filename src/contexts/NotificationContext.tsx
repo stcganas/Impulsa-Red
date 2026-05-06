@@ -1,122 +1,255 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { supabase } from '../lib/supabase';
+import { useUser } from './UserContext';
+import { toast } from 'sonner';
+import OneSignal from 'react-onesignal';
 
-interface NotificationConfig {
-  enabled: boolean;
-  interval: number; // in seconds
-  position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
-  maxVisible: number;
+interface SystemNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  read: boolean;
+  created_at: string;
 }
 
-interface ActivityNotification {
+interface SocialActivity {
   id: string;
   user: string;
+  avatar?: string;
   action: string;
   time: string;
-  avatar?: string;
 }
 
 interface NotificationContextType {
-  config: NotificationConfig;
-  updateConfig: (newConfig: Partial<NotificationConfig>) => void;
-  notifications: ActivityNotification[];
-  addNotification: (notification: Omit<ActivityNotification, 'id'>) => void;
-  removeNotification: (id: string) => void;
+  // System Notifications
+  notifications: SystemNotification[];
+  unreadCount: number;
+  loading: boolean;
+  markAsRead: (id: string) => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  
+  // Social/Live Activities
+  liveActivities: SocialActivity[];
+  
+  // Permission (Legacy/Compatibility)
+  permission: NotificationPermission;
+  requestPermission: () => Promise<void>;
+  token: string | null;
+  tokenError: string | null;
+  
+  // Legacy compatibility for LiveActivityNotifications component
+  config: {
+    enabled: boolean;
+    position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
+  };
+  liveNotifications: SocialActivity[];
 }
-
-const DEFAULT_CONFIG: NotificationConfig = {
-  enabled: true,
-  interval: 12,
-  position: 'bottom-right',
-  maxVisible: 3
-};
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-const ACTIONS = [
-  "acaba de retirar $50",
-  "completó una tarea de nivel 2",
-  "invitó a un nuevo miembro",
-  "subió al nivel 5",
-  "acaba de depositar $100",
-  "completó su entrenamiento diario",
-  "recibió una comisión por referido",
-  "desbloqueó un nuevo logro",
-  "acaba de unirse al equipo",
-  "calificó para el bono semanal"
-];
+export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useUser();
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [liveActivities] = useState<SocialActivity[]>([]);
+  const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [token, setToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [isOneSignalInitialized, setIsOneSignalInitialized] = useState(false);
 
-const NAMES = [
-  "Carlos R.", "Maria G.", "Juan P.", "Elena M.", "Luis F.", 
-  "Sofia T.", "Andrés B.", "Lucia S.", "Roberto V.", "Gabriela D.",
-  "Miguel A.", "Patricia L.", "Fernando K.", "Isabel J.", "Diego M."
-];
+  // Initialize OneSignal
+  useEffect(() => {
+    const oneSignalAppId = import.meta.env.VITE_ONESIGNAL_APP_ID;
+    if (!oneSignalAppId) return;
 
-export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [config, setConfig] = useState<NotificationConfig>(() => {
-    const saved = localStorage.getItem('notification_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
-  });
+    // Direct check if already initialized to avoid "SDK already initialized" error
+    if (window.OneSignal && (window as any).OneSignal.initialized) {
+      setIsOneSignalInitialized(true);
+      setPermission(Notification.permission);
+      return;
+    }
 
-  const [notifications, setNotifications] = useState<ActivityNotification[]>([]);
-
-  const updateConfig = (newConfig: Partial<NotificationConfig>) => {
-    setConfig(prev => {
-      const updated = { ...prev, ...newConfig };
-      localStorage.setItem('notification_config', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const addNotification = useCallback((notification: Omit<ActivityNotification, 'id'>) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setNotifications(prev => {
-      const updated = [...prev, { ...notification, id }];
-      if (updated.length > config.maxVisible) {
-        return updated.slice(updated.length - config.maxVisible);
+    OneSignal.init({
+      appId: oneSignalAppId,
+      allowLocalhostAsSecureOrigin: true,
+      serviceWorkerPath: 'OneSignalSDKWorker.js',
+    }).then(() => {
+      console.log('OneSignal Initialized');
+      setIsOneSignalInitialized(true);
+      setPermission(Notification.permission);
+    }).catch(err => {
+      // Gracefully handle domain or browser constraints
+      if (err.message && err.message.includes('Can only be used on')) {
+        console.warn('OneSignal Domain Mismatch: This is expected on development URLs unless manually configured in OneSignal dashboard.');
+      } else if (err.message && err.message.includes('already initialized')) {
+        setIsOneSignalInitialized(true);
+      } else {
+        console.error('OneSignal Init Error:', err);
       }
-      return updated;
     });
-
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-      removeNotification(id);
-    }, 5000);
-  }, [config.maxVisible]);
-
-  const removeNotification = useCallback((id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  // Simulate activity
+  // Sync OneSignal with User ID
   useEffect(() => {
-    if (!config.enabled) return;
+    if (!isOneSignalInitialized) return;
 
-    const intervalId = setInterval(() => {
-      const randomName = NAMES[Math.floor(Math.random() * NAMES.length)];
-      const randomAction = ACTIONS[Math.floor(Math.random() * ACTIONS.length)];
-      
-      addNotification({
-        user: randomName,
-        action: randomAction,
-        time: "Hace un momento",
-        avatar: `https://i.pravatar.cc/150?u=${randomName}`
-      });
-    }, config.interval * 1000);
+    const syncUser = async () => {
+      try {
+        // Double check if script is loaded and SDK is initialized
+        if (typeof window === 'undefined' || !window.OneSignal) return;
+        
+        const os = window.OneSignal as any;
+        
+        if (user?.id) {
+          // Check if login method exists and SDK is initialized
+          if (os.login && typeof os.login === 'function') {
+            await OneSignal.login(user.id);
+            console.log('OneSignal User Synced (Login):', user.id);
+          } else if ((os as any).setExternalUserId) {
+            await (OneSignal as any).setExternalUserId(user.id);
+            console.log('OneSignal User Synced (ExternalID):', user.id);
+          }
+        } else {
+          if (os.logout && typeof os.logout === 'function') {
+            await OneSignal.logout();
+          }
+        }
+      } catch (err) {
+        // Silence minified property errors that are common in dev during reloads
+        console.warn('OneSignal Sync Warning:', err);
+      }
+    };
 
-    return () => clearInterval(intervalId);
-  }, [config.enabled, config.interval, addNotification]);
+    syncUser();
+  }, [user?.id, isOneSignalInitialized]);
+
+  const [config] = useState({
+    enabled: true,
+    position: 'top-right' as const
+  });
+
+  const fetchHistory = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      setNotifications(data || []);
+      setUnreadCount(data?.filter(n => !n.read).length || 0);
+    } catch (error) {
+      console.error('Error fetching notification history:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchHistory();
+
+      // Subscribe to Realtime personal notifications
+      const systemSub = supabase
+        .channel('personal_notifs')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`
+        }, (payload) => {
+          const newNotif = payload.new as SystemNotification;
+          setNotifications(prev => [newNotif, ...prev]);
+          setUnreadCount(prev => prev + 1);
+          
+          toast(newNotif.title, {
+            description: newNotif.message,
+            duration: 5000,
+            action: {
+              label: 'Ver',
+              onClick: () => window.location.href = '/notifications'
+            }
+          });
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(systemSub);
+      };
+    }
+  }, [user?.id, fetchHistory]);
+
+  const markAsRead = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+
+      if (error) throw error;
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!user?.id) return;
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+
+      if (error) throw error;
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  };
+
+  const requestPermission = async () => {
+    try {
+      await OneSignal.Slidedown.promptPush();
+      setPermission(Notification.permission);
+    } catch (err) {
+      console.error('Error requesting permission:', err);
+    }
+  };
 
   return (
-    <NotificationContext.Provider value={{ config, updateConfig, notifications, addNotification, removeNotification }}>
+    <NotificationContext.Provider value={{ 
+      notifications, 
+      unreadCount, 
+      loading, 
+      markAsRead, 
+      markAllAsRead,
+      liveActivities,
+      permission,
+      requestPermission,
+      token,
+      tokenError,
+      config,
+      liveNotifications: liveActivities
+    }}>
       {children}
     </NotificationContext.Provider>
   );
-};
+}
 
-export const useNotifications = () => {
+export function useNotifications() {
   const context = useContext(NotificationContext);
   if (context === undefined) {
-    throw new Error('useNotifications must be used within a NotificationProvider');
+    throw new Error('useNotifications must be used within NotificationProvider');
   }
   return context;
-};
+}

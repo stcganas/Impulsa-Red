@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { useNotifications } from "../contexts/NotificationContext";
 import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../lib/supabase";
 
@@ -33,6 +34,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const { user, logout, refreshUser } = useUser();
   const { theme, toggleTheme } = useTheme();
+  const { permission, requestPermission } = useNotifications();
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -494,6 +496,31 @@ export default function Profile() {
                   theme === 'dark' ? "left-7" : "left-1"
                 )} />
               </div>
+            </button>
+            
+            <button 
+              onClick={requestPermission}
+              className="w-full flex items-center justify-between group mt-4 pt-4 border-t border-slate-100 dark:border-white/5"
+            >
+              <div className="flex items-center gap-4">
+                <div className={cn(
+                  "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
+                  permission === 'granted' ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600" : "bg-blue-50 dark:bg-blue-500/10 text-blue-600"
+                )}>
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <span className="font-bold text-slate-800 dark:text-white block">
+                    {permission === 'granted' ? 'Notificaciones Activas' : 'Activar Notificaciones'}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Recibe alertas con la app cerrada</span>
+                </div>
+              </div>
+              {permission !== 'granted' && (
+                <div className="px-3 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-full animate-pulse">
+                  ACTIVAR
+                </div>
+              )}
             </button>
           </div>
 

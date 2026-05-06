@@ -39,26 +39,12 @@ const InviteLandingPage = lazy(() => import("./pages/InviteLandingPage"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 
-const LoadingScreen = ({ message = "Cargando aplicación..." }: { message?: string }) => (
+const LoadingScreen = ({ message }: { message?: string }) => (
   <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-6 p-6">
     <div className="relative">
-      <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-emerald-500"></div>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="h-8 w-8 bg-emerald-500/10 rounded-full"></div>
-      </div>
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500"></div>
     </div>
-    <div className="text-center space-y-2">
-      <p className="text-white font-medium text-lg">{message}</p>
-      <p className="text-slate-400 text-sm max-w-xs mx-auto">
-        Estamos preparando todo para tu mejor experiencia. Esto solo tomará un momento.
-      </p>
-    </div>
-    <button 
-      onClick={() => window.location.reload()}
-      className="mt-4 text-emerald-500 text-xs hover:underline"
-    >
-      ¿Tarda demasiado? Reintentar
-    </button>
+    {message && <p className="text-slate-400 text-sm font-medium animate-pulse">{message}</p>}
   </div>
 );
 
@@ -69,7 +55,7 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: 
   console.log("ProtectedRoute check:", { loading, settingsLoading, hasUser: !!user });
 
   if (loading || settingsLoading) {
-    return <LoadingScreen message="Verificando acceso..." />;
+    return <LoadingScreen />;
   }
   
   const userRole = user?.role || 'user';
@@ -80,8 +66,8 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: 
   }
 
   if (!user) {
-    console.log("ProtectedRoute: No user found, redirecting to /login");
-    return <Navigate to="/login" replace />;
+    console.log("ProtectedRoute: No user found, redirecting to /");
+    return <Navigate to="/" replace />;
   }
   
   if (role && userRole !== role) {
@@ -103,15 +89,15 @@ const MaintenanceGuard = ({ children }: { children: React.ReactNode }) => {
 
   console.log("MaintenanceGuard check:", { loading, userLoading, isMaintenanceMode, path: location.pathname });
 
-  if (loading || userLoading) {
-    return <LoadingScreen message="Cargando configuración..." />;
-  }
-  
-  // Allow access to login page even in maintenance mode so admins can log in
-  // Also allow access to maintenance page itself to avoid loops
   const isLoginPage = location.pathname === '/login';
   const isMaintenancePage = location.pathname === '/maintenance';
   const isAdmin = user?.role === 'admin';
+
+  // Solo mostramos el LoadingScreen global si no estamos en login, 
+  // ya que la página de login maneja sus propios estados de carga (incluyendo el splash de bienvenida)
+  if (loading || (userLoading && !isLoginPage && !isMaintenancePage)) {
+    return <LoadingScreen />;
+  }
 
   if (isMaintenanceMode && !isAdmin && !isLoginPage && !isMaintenancePage) {
     console.log("MaintenanceGuard: Maintenance mode active, redirecting to /maintenance");
@@ -214,7 +200,7 @@ export default function App() {
               <NotificationProvider>
                 <BrowserRouter>
                   <LiveActivityNotifications />
-                  <Suspense fallback={<LoadingScreen message="Cargando vista..." />}>
+                  <Suspense fallback={<LoadingScreen />}>
                     <Routes>
                       {/* Public Pages */}
                       <Route path="/" element={<MaintenanceGuard><LandingPage /></MaintenanceGuard>} />

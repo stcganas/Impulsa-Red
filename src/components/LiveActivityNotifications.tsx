@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { User, Activity } from 'lucide-react';
 
 const LiveActivityNotifications: React.FC = () => {
-  const { notifications, config } = useNotifications();
+  const { liveNotifications, config } = useNotifications();
 
   if (!config.enabled) return null;
 
@@ -18,7 +18,7 @@ const LiveActivityNotifications: React.FC = () => {
   return (
     <div className={`fixed z-[9999] pointer-events-none flex flex-col gap-3 ${positionClasses[config.position]}`}>
       <AnimatePresence>
-        {notifications.map((notification) => (
+        {liveNotifications.map((notification) => (
           <motion.div
             key={notification.id}
             initial={{ opacity: 0, x: config.position.includes('right') ? 50 : -50, scale: 0.9 }}

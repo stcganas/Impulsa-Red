@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Send, Bell, Loader2, Users, AlertCircle, CheckCircle2, Info } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export default function GlobalNotificationSender() {
   const [loading, setLoading] = useState(false);
@@ -50,33 +51,41 @@ export default function GlobalNotificationSender() {
   };
 
   return (
-    <div className="bg-white dark:bg-[#111] rounded-3xl p-6 shadow-sm border border-slate-200 dark:border-white/5">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
-          <Bell className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+    <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-8 shadow-sm border border-slate-200 dark:border-white/5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8">
+        <div className="w-14 h-14 rounded-2xl bg-blue-600/10 flex items-center justify-center shrink-0">
+          <Bell className="w-7 h-7 text-blue-600 dark:text-blue-400" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Notificaciones Globales</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Envía alertas a todos los usuarios o por rol</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Notificaciones Globales</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Comunícate instantáneamente con todos tus usuarios</p>
         </div>
       </div>
 
       {successMessage && (
-        <div className="mb-6 p-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl flex items-center gap-3 text-emerald-700 dark:text-emerald-400">
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-2xl flex items-center gap-3 text-emerald-700 dark:text-emerald-400"
+        >
           <CheckCircle2 className="w-5 h-5 shrink-0" />
-          <p className="text-sm font-medium">{successMessage}</p>
-        </div>
+          <p className="text-sm font-bold">{successMessage}</p>
+        </motion.div>
       )}
 
       {errorMessage && (
-        <div className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl flex items-center gap-3 text-red-700 dark:text-red-400">
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-2xl flex items-center gap-3 text-red-700 dark:text-red-400"
+        >
           <AlertCircle className="w-5 h-5 shrink-0" />
-          <p className="text-sm font-medium">{errorMessage}</p>
-        </div>
+          <p className="text-sm font-bold">{errorMessage}</p>
+        </motion.div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Destinatarios</label>
             <div className="relative">

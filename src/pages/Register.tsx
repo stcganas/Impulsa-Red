@@ -65,7 +65,11 @@ export default function Register() {
       });
 
       if (signUpError) {
-        throw new Error(signUpError.message);
+        let msg = signUpError.message;
+        if (msg.includes('already registered') || msg.includes('User already exists')) {
+          msg = 'Este correo ya está en uso. Por favor, inicia sesión o usa otro correo.';
+        }
+        throw new Error(msg);
       }
 
       if (!authData.user) {

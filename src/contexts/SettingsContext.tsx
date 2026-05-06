@@ -19,7 +19,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       return {};
     }
   });
-  const [loading, setLoading] = useState(true);
+  
+  // Only set loading to true initially if we have no cached settings
+  // This prevents the UI from blocking on initial load if we already have the cache
+  const [loading, setLoading] = useState(() => !localStorage.getItem('impulsa_settings'));
 
   const fetchSettings = async () => {
     console.log("SettingsContext: Iniciando fetchSettings...");
