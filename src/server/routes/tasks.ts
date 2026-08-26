@@ -6,96 +6,88 @@ export function tasksRoutes(services: any) {
 
 
 
-  router.post('/tasks/claim/:id', authenticate, async (req: any, res: any) => {
+  // Submit a task with evidence (For review)
+  router.post('/tasks/submit/:id', authenticate, async (req: any, res: any) => {
     try {
-
-
-
-
-
-
-    const user = req.user;
-
+      const authUser = req.user;
       const taskId = req.params.id;
+      const { evidence_url, notes } = req.body;
 
-      // Check if task is ready to claim
-      const { data: userTask } = await supabase
-        .from('user_tasks')
-        .select('*, tasks(xp_reward)')
-        .eq('user_id', user.id)
-        .eq('task_id', taskId)
+      // 1. Get task details
+      const { data: task, error: taskError } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('id', taskId)
         .single();
 
-      if (!userTask || !userTask.ready_to_claim || userTask.completed) {
-        return res.status(400).json({ error: 'Task not ready to claim or already completed' });
-      }
+      if (taskError || !task) return res.status(404).json({ error: 'Tarea no encontrada' });
 
-      // Mark as completed
-      await supabase
-        .from('user_tasks')
-        .update({
-          completed: true,
-          ready_to_claim: false,
-          completed_at: new Date().toISOString()
+      // 2. Create submission record
+      const { data: submission, error: subError } = await supabase
+        .from('task_submissions')
+        .insert({
+          user_id: authUser.id,
+          task_id: taskId,
+          evidence_url,
+          notes,
+          status: 'pending'
         })
-        .eq('id', userTask.id);
-
-      // Add XP
-      const xpReward = userTask.tasks?.xp_reward || 0;
-      
-      // Get current user profile
-      const { data: profile } = await supabase
-        .from('users')
-        .select('xp, level, plan')
-        .eq('id', user.id)
+        .select()
         .single();
 
-      if (profile) {
-        const newXp = (profile.xp || 0) + xpReward;
-        let newLevel = Math.floor(newXp / 1000) + 1;
-        if (newLevel > 100) newLevel = 100;
-        let newPercentage = profile.percentage || 0;
-        let leveledUp = newLevel > (profile.level || 1);
+      if (subError) throw subError;
 
-        if (leveledUp) {
-          newPercentage = calculatePercentage(newLevel, profile.plan || 'Básico');
-        }
+      // 3. Link submission to user_tasks or update status
+      const { error: utError } = await supabase
+        .from('user_tasks')
+        .upsert({
+          user_id: authUser.id,
+          task_id: taskId,
+          submission_id: submission.id,
+          status: 'pending_review',
+          ready_to_claim: false,
+          reward_claimed: false
+        })
+        .eq('user_id', authUser.id)
+        .eq('task_id', taskId);
 
-        await supabase
-          .from('users')
-          .update({ xp: newXp, level: newLevel, percentage: newPercentage })
-          .eq('id', user.id);
-
-        res.json({ success: true, xpGained: xpReward, leveledUp, newLevel, newPercentage });
-      } else {
-        res.json({ success: true, xpGained: xpReward, leveledUp: false });
+      if (utError) {
+        // If upsert fails due to policy or missing record, we try to insert
+        const { error: insertError } = await supabase
+          .from('user_tasks')
+          .insert({
+            user_id: authUser.id,
+            task_id: taskId,
+            submission_id: submission.id,
+            status: 'pending_review',
+            ready_to_claim: false,
+            reward_claimed: false
+          });
+        if (insertError) throw insertError;
       }
+
+      res.json({ 
+        success: true, 
+        message: 'Evidencia enviada correctamente. Un administrador la revisará pronto.',
+        submission_id: submission.id
+      });
     } catch (error: any) {
-      console.error('Error claiming task:', error);
+      console.error('Error in /api/tasks/submit:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // --- END SMART TASKS ENGINE ---
 
-  // Complete a task
+  // Complete a task (Mark as ready to claim)
   router.post('/tasks/complete/:id', authenticate, async (req: any, res: any) => {
-
-
-
-
-
-
-
     try {
-    const authUser = req.user;
-
+      const authUser = req.user;
       const taskId = req.params.id;
 
       // Check daily reset before completing
       await checkDailyReset(authUser.id);
 
-      // 1. Get task details to know XP reward
+      // 1. Get task details
       const { data: task, error: taskError } = await supabase
         .from('tasks')
         .select('*')
@@ -108,7 +100,7 @@ export function tasksRoutes(services: any) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      const { data: existingTask } = await supabase
+      const { data: existingUserTask } = await supabase
         .from('user_tasks')
         .select('*')
         .eq('user_id', authUser.id)
@@ -116,29 +108,129 @@ export function tasksRoutes(services: any) {
         .gte('completed_at', today.toISOString())
         .single();
 
-      if (existingTask) return res.status(400).json({ error: 'Tarea ya completada hoy' });
+      if (existingUserTask) {
+        return res.status(400).json({ error: 'Tarea ya completada hoy' });
+      }
 
-      // 3. Update user_tasks
-      const { error: utError } = await supabase
+      // 3. Update/Insert user_tasks - Mark as ready to claim, but NOT reward_claimed
+      const { data: newUserTask, error: utError } = await supabase
         .from('user_tasks')
         .insert({
           user_id: authUser.id,
           task_id: taskId,
-          completed_at: new Date().toISOString()
-        });
+          completed_at: new Date().toISOString(),
+          ready_to_claim: true,
+          reward_claimed: false
+        })
+        .select()
+        .single();
 
       if (utError) throw utError;
 
-      // 4. Update user XP and Level
+      res.json({ 
+        success: true, 
+        message: 'Tarea completada. Lista para reclamar.',
+        ready_to_claim: true
+      });
+    } catch (error: any) {
+      console.error('Error in /api/tasks/complete:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Claim rewards for a task
+  router.post('/tasks/claim/:id', authenticate, async (req: any, res: any) => {
+    try {
+      const authUser = req.user;
+      const taskId = req.params.id;
+
+      // 1. Get user_task record
+      const { data: userTask, error: utError } = await supabase
+        .from('user_tasks')
+        .select('*, tasks(*)')
+        .eq('user_id', authUser.id)
+        .eq('task_id', taskId)
+        .single();
+
+      if (utError || !userTask) return res.status(404).json({ error: 'Registro de tarea no encontrado' });
+      if (!userTask.ready_to_claim) return res.status(400).json({ error: 'La tarea aún no ha sido completada' });
+      if (userTask.reward_claimed) return res.status(400).json({ error: 'Las recompensas ya han sido reclamadas' });
+
+      // 2. Mark as reward_claimed
+      const { error: updateUtError } = await supabase
+        .from('user_tasks')
+        .update({ reward_claimed: true })
+        .eq('id', userTask.id);
+
+      if (updateUtError) throw updateUtError;
+
+      // 3. Update user XP, Level, and Streak
       const { data: profile } = await supabase
         .from('users')
-        .select('xp, level, plan')
+        .select('xp, level, plan, percentage, current_streak, longest_streak, last_task_date, badges')
         .eq('id', authUser.id)
         .single();
 
       if (!profile) throw new Error("Perfil no encontrado");
 
-      const xpGained = task.xp || 100;
+      // Streak Logic
+      const now = new Date();
+      let currentStreak = profile.current_streak || 0;
+      let longestStreak = profile.longest_streak || 0;
+      let badges = profile.badges || [];
+      let unlockedBadges = [];
+
+      if (profile.last_task_date) {
+        const lastTaskDate = new Date(profile.last_task_date);
+        const todayStr = now.toISOString().split('T')[0];
+        const lastTaskStr = lastTaskDate.toISOString().split('T')[0];
+        const todayDate = new Date(todayStr);
+        const lastDate = new Date(lastTaskStr);
+        const diffDays = Math.floor((todayDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (diffDays === 1) {
+          currentStreak += 1;
+        } else if (diffDays > 1) {
+          currentStreak = 1;
+        }
+      } else {
+        currentStreak = 1;
+      }
+      
+      if (currentStreak > longestStreak) {
+        longestStreak = currentStreak;
+      }
+
+      const streakBadges = [
+        { days: 3, id: 'streak_3', name: 'Racha 3 Días', icon: '🔥' },
+        { days: 7, id: 'streak_7', name: 'Racha Semanal', icon: '⚡' },
+        { days: 30, id: 'streak_30', name: 'Racha Mensual', icon: '🏆' }
+      ];
+
+      for (const badge of streakBadges) {
+        if (currentStreak >= badge.days && !badges.some((b: any) => b.id === badge.id)) {
+          badges.push(badge);
+          unlockedBadges.push(badge);
+        }
+      }
+
+      // Check for Double XP Event
+      const { data: settingsData } = await supabase.from('settings').select('value').eq('key', 'double_xp_active').single();
+      const doubleXpActive = settingsData?.value === true || settingsData?.value === 'true';
+
+      let xpGained = userTask.tasks?.xp || 100;
+      
+      // Streak Bonus
+      if (currentStreak >= 7) {
+        xpGained += 50; // Weekly streak bonus
+      } else if (currentStreak >= 3) {
+        xpGained += 20; // 3-day streak bonus
+      }
+
+      if (doubleXpActive) {
+        xpGained *= 2;
+      }
+
       const newXp = (profile.xp || 0) + xpGained;
       let newLevel = Math.floor(newXp / 1000) + 1;
       if (newLevel > 100) newLevel = 100;
@@ -155,7 +247,11 @@ export function tasksRoutes(services: any) {
         .update({
           xp: newXp,
           level: newLevel,
-          percentage: newPercentage
+          percentage: newPercentage,
+          current_streak: currentStreak,
+          longest_streak: longestStreak,
+          last_task_date: now.toISOString(),
+          badges: badges
         })
         .eq('id', authUser.id);
 
@@ -165,10 +261,13 @@ export function tasksRoutes(services: any) {
         newXp, 
         newLevel, 
         leveledUp,
-        newPercentage
+        newPercentage,
+        reward_claimed: true,
+        currentStreak,
+        unlockedBadges
       });
     } catch (error: any) {
-      console.error('Error in /api/tasks/complete:', error);
+      console.error('Error in /api/tasks/claim:', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -331,7 +430,7 @@ export function tasksRoutes(services: any) {
         .from('penalty_tasks')
         .select('*')
         .eq('user_id', authUser.id)
-        .eq('is_completed', false);
+        .eq('reward_claimed', false);
 
       if (error) throw error;
       res.json(data || []);
@@ -342,17 +441,10 @@ export function tasksRoutes(services: any) {
   });
 
 
-  // Complete Penalty Task
+  // Complete Penalty Task (Mark as ready to claim)
   router.post('/tasks/complete-penalty/:id', authenticate, async (req: any, res: any) => {
     try {
-
-
-
-
-
-
-    const authUser = req.user;
-
+      const authUser = req.user;
       const { id } = req.params;
 
       const { data: penaltyTask, error: fetchError } = await supabase
@@ -362,16 +454,55 @@ export function tasksRoutes(services: any) {
         .eq('user_id', authUser.id)
         .single();
 
-      if (fetchError || !penaltyTask) return res.status(404).json({ error: 'Penalty task not found' });
-      if (penaltyTask.is_completed) return res.status(400).json({ error: 'Task already completed' });
+      if (fetchError || !penaltyTask) return res.status(404).json({ error: 'Tarea de castigo no encontrada' });
+      if (penaltyTask.is_completed) return res.status(400).json({ error: 'La tarea ya ha sido completada' });
 
       // Update penalty task
-      await supabase.from('penalty_tasks').update({ is_completed: true }).eq('id', id);
+      await supabase.from('penalty_tasks').update({ 
+        is_completed: true,
+        ready_to_claim: true,
+        reward_claimed: false
+      }).eq('id', id);
+
+      res.json({ success: true, message: 'Tarea de castigo completada. Lista para reclamar.', ready_to_claim: true });
+    } catch (error) {
+      console.error('Error completing penalty task:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
+  // Claim Rewards for Penalty Task
+  router.post('/tasks/claim-penalty/:id', authenticate, async (req: any, res: any) => {
+    try {
+      const authUser = req.user;
+      const { id } = req.params;
+
+      const { data: penaltyTask, error: fetchError } = await supabase
+        .from('penalty_tasks')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (fetchError || !penaltyTask) return res.status(404).json({ error: 'Tarea de castigo no encontrada' });
+      if (!penaltyTask.ready_to_claim) return res.status(400).json({ error: 'La tarea no ha sido completada aún' });
+      if (penaltyTask.reward_claimed) return res.status(400).json({ error: 'La recompensa ya ha sido reclamada' });
+
+      // Update penalty task
+      await supabase.from('penalty_tasks').update({ reward_claimed: true }).eq('id', id);
 
       // Add XP to user
-      const { data: profile } = await supabase.from('users').select('xp, level, plan').eq('id', authUser.id).single();
+      const { data: profile } = await supabase.from('users').select('xp, level, plan, percentage').eq('id', authUser.id).single();
       if (profile) {
-        const xpGained = penaltyTask.xp || 50;
+        // Check for Double XP Event
+        const { data: settingsData } = await supabase.from('settings').select('value').eq('key', 'double_xp_active').single();
+        const doubleXpActive = settingsData?.value === true || settingsData?.value === 'true';
+
+        let xpGained = penaltyTask.xp || 50;
+        if (doubleXpActive) {
+          xpGained *= 2;
+        }
+
         const newXp = (profile.xp || 0) + xpGained;
         let newLevel = Math.floor(newXp / 1000) + 1;
         if (newLevel > 100) newLevel = 100;
@@ -379,18 +510,17 @@ export function tasksRoutes(services: any) {
         let newPercentage = profile.percentage;
 
         if (leveledUp) {
-          // Recalculate percentage
           newPercentage = calculatePercentage(newLevel, profile.plan || 'Básico');
         }
 
         await supabase.from('users').update({ xp: newXp, level: newLevel, percentage: newPercentage }).eq('id', authUser.id);
-        res.json({ success: true, xpGained, leveledUp, newLevel, newPercentage });
+        res.json({ success: true, xpGained, leveledUp, newLevel, newPercentage, reward_claimed: true });
       } else {
-        res.json({ success: true, xpGained: 0, leveledUp: false, newLevel: 1, newPercentage: 0 });
+        res.status(404).json({ error: 'Perfil de usuario no encontrado' });
       }
     } catch (error) {
-      console.error('Error completing penalty task:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('Error claiming penalty task reward:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   });
   return router;

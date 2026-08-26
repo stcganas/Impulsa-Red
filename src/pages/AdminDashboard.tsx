@@ -19,9 +19,10 @@ import {
   Video,
   MessageSquare,
   Moon,
-  Sun
+  Sun,
+  MoreHorizontal
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { useUser } from "../contexts/UserContext";
 import Logo from "../components/Logo";
@@ -30,6 +31,7 @@ import { useSettings } from "../contexts/SettingsContext";
 import { supabase } from "../lib/supabase";
 import UserManagement from "../components/UserManagement";
 import TaskManagement from "../components/TaskManagement";
+import TaskSubmissionsManagement from "../components/TaskSubmissionsManagement";
 import TransactionManagement from "../components/TransactionManagement";
 import CourseManagement from "../components/CourseManagement";
 import SettingsManagement from "../components/SettingsManagement";
@@ -42,6 +44,7 @@ import GlobalNotificationSender from "../components/admin/GlobalNotificationSend
 import NotificationScheduler from "../components/admin/NotificationScheduler";
 import CustomNotificationScheduler from "../components/admin/CustomNotificationScheduler";
 import SystemManagement from "../components/SystemManagement";
+import AppLogicProjection from "./admin/AppLogicProjection";
 
 interface AdminStats {
   totalUsers: number;
@@ -66,9 +69,11 @@ export default function AdminDashboard() {
   const { theme, toggleTheme } = useTheme();
   const { settings } = useSettings();
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [pendingTickets, setPendingTickets] = useState(0);
+  const [pendingSubmissions, setPendingSubmissions] = useState(0);
   const [stats, setStats] = useState<AdminStats>({
     totalUsers: 0,
     totalTransactions: 0,
@@ -143,6 +148,7 @@ export default function AdminDashboard() {
 
         setRecentActivity(formattedActivity);
         setPendingTickets(data.pendingTickets || 0);
+        setPendingSubmissions(data.pendingSubmissions || 0);
 
         try {
           // Fetch System Status
@@ -199,9 +205,25 @@ export default function AdminDashboard() {
         })
         .subscribe();
 
+      const submissionsChannel = supabase
+        .channel('admin_submissions')
+        .on('postgres_changes', { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'task_submissions' 
+        }, (payload) => {
+          console.log("Admin: New submission detected", payload.new);
+          toast.success("Nuevo Envío de Tarea", {
+            description: "Un usuario ha enviado una prueba para revisión."
+          });
+          fetchStats();
+        })
+        .subscribe();
+
       return () => {
         supabase.removeChannel(transactionsChannel);
         supabase.removeChannel(ticketsChannel);
+        supabase.removeChannel(submissionsChannel);
       };
     }
   }, [user]);
@@ -237,6 +259,8 @@ export default function AdminDashboard() {
             { icon: MessageSquare, label: "Tickets" },
             { icon: Activity, label: "Sistema" },
             { icon: CheckSquare, label: "Tareas" },
+            { icon: MessageSquare, label: "Envíos" },
+            { icon: BarChart3, label: "Lógica App" },
             { icon: Video, label: "Cursos" },
             { icon: ShieldCheck, label: "Planes" },
             { icon: Bell, label: "Notificaciones" },
@@ -258,39 +282,121 @@ export default function AdminDashboard() {
                   {pendingTickets}
                 </span>
               )}
+              {item.label === "Envíos" && pendingSubmissions > 0 && (
+                <span className="ml-auto bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {pendingSubmissions}
+                </span>
+              )}
             </button>
           ))}
         </nav>
       </div>
 
       {/* Bottom Navigation (Mobile) */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-[#111] border-t border-slate-200 dark:border-white/5 flex justify-around items-center p-2 z-50 overflow-x-auto">
-        {[
-          { icon: BarChart3, label: "Dashboard" },
-          { icon: Users, label: "Usuarios" },
-          { icon: TrendingUp, label: "Transacciones" },
-          { icon: MessageSquare, label: "Tickets" },
-          { icon: Activity, label: "Sistema" },
-          { icon: CheckSquare, label: "Tareas" },
-          { icon: Video, label: "Cursos" },
-          { icon: ShieldCheck, label: "Planes" },
-          { icon: Bell, label: "Notificaciones" },
-          { icon: Settings, label: "Configuración" },
-        ].map((item, idx) => (
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        <AnimatePresence>
+          {isMobileMenuOpen && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+                onClick={() => setIsMobileMenuOpen(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 100, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 100, scale: 0.95 }}
+                transition={{ type: "spring", bounce: 0.4, duration: 0.5 }}
+                className="absolute bottom-24 left-4 right-4 bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-2xl border border-white/20 dark:border-white/10 p-6 rounded-[2rem] shadow-2xl shadow-black/30 z-50 overflow-hidden"
+              >
+                <div className="grid grid-cols-3 gap-y-8 gap-x-4">
+                  {[
+                    { icon: Activity, label: "Sistema", color: "text-rose-500", bg: "bg-gradient-to-br from-rose-400 to-rose-600", shadow: "shadow-rose-500/40" },
+                    { icon: CheckSquare, label: "Tareas", color: "text-cyan-500", bg: "bg-gradient-to-br from-cyan-400 to-cyan-600", shadow: "shadow-cyan-500/40" },
+                    { icon: MessageSquare, label: "Envíos", color: "text-emerald-500", bg: "bg-gradient-to-br from-emerald-400 to-emerald-600", shadow: "shadow-emerald-500/40" },
+                    { icon: BarChart3, label: "Lógica App", color: "text-amber-500", bg: "bg-gradient-to-br from-amber-400 to-amber-600", shadow: "shadow-amber-500/40" },
+                    { icon: Video, label: "Cursos", color: "text-indigo-500", bg: "bg-gradient-to-br from-indigo-400 to-indigo-600", shadow: "shadow-indigo-500/40" },
+                    { icon: ShieldCheck, label: "Planes", color: "text-pink-500", bg: "bg-gradient-to-br from-pink-400 to-pink-600", shadow: "shadow-pink-500/40" },
+                    { icon: Bell, label: "Notifs", color: "text-orange-500", bg: "bg-gradient-to-br from-orange-400 to-orange-600", shadow: "shadow-orange-500/40" },
+                    { icon: Settings, label: "Ajustes", color: "text-slate-500", bg: "bg-gradient-to-br from-slate-400 to-slate-600", shadow: "shadow-slate-500/40" },
+                  ].map((item, idx) => {
+                    const isActive = activeTab === item.label || (activeTab === "Configuración" && item.label === "Ajustes") || (activeTab === "Notificaciones" && item.label === "Notifs");
+                    const actualLabel = item.label === "Ajustes" ? "Configuración" : item.label === "Notifs" ? "Notificaciones" : item.label;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setActiveTab(actualLabel);
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className="flex flex-col items-center gap-2 rounded-2xl group transition-all"
+                      >
+                        <div className={`w-14 h-14 rounded-[1.25rem] flex items-center justify-center transition-all duration-300 transform group-hover:scale-110 group-active:scale-95 ${isActive ? `${item.bg} text-white shadow-lg ${item.shadow}` : `bg-slate-100 dark:bg-white/5 ${item.color} shadow-inner border border-slate-200/50 dark:border-white/5`}`}>
+                          <item.icon className="w-6 h-6 drop-shadow-sm" style={{ filter: isActive ? 'drop-shadow(0px 2px 2px rgba(0,0,0,0.2))' : '' }} />
+                        </div>
+                        <span className={`text-[11px] font-bold tracking-wide ${isActive ? 'text-slate-900 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        <nav className="bg-white/95 dark:bg-[#111]/95 backdrop-blur-2xl border-t border-slate-200/50 dark:border-white/10 flex justify-around items-center p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] px-1 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.3)]">
+          {[
+            { icon: BarChart3, label: "Dashboard", color: "text-blue-500 dark:text-blue-400", bg: "bg-gradient-to-br from-blue-400 to-blue-600", shadow: "shadow-blue-500/40" },
+            { icon: Users, label: "Usuarios", color: "text-emerald-500 dark:text-emerald-400", bg: "bg-gradient-to-br from-emerald-400 to-emerald-600", shadow: "shadow-emerald-500/40" },
+            { icon: TrendingUp, label: "Transacciones", color: "text-amber-500 dark:text-amber-400", bg: "bg-gradient-to-br from-amber-400 to-amber-600", shadow: "shadow-amber-500/40" },
+            { icon: MessageSquare, label: "Tickets", color: "text-purple-500 dark:text-purple-400", bg: "bg-gradient-to-br from-purple-400 to-purple-600", shadow: "shadow-purple-500/40" },
+          ].map((item, idx) => {
+            const isActive = activeTab === item.label;
+            return (
+              <button
+                key={idx}
+                onClick={() => {
+                  setActiveTab(item.label);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="relative flex flex-col items-center justify-center w-[20%] h-16 group"
+              >
+                <div className="flex flex-col items-center justify-center transition-all duration-400 ease-out h-full w-full relative">
+                  <div className={`w-10 h-10 rounded-[0.9rem] flex items-center justify-center transition-all duration-400 relative z-10 ${isActive ? `${item.bg} text-white shadow-xl ${item.shadow} scale-110 -translate-y-1` : `${item.color} bg-slate-100 dark:bg-white/5 border border-slate-200/50 dark:border-white/5`}`}>
+                    <item.icon className="w-5 h-5 transition-all duration-300" style={{ filter: isActive ? 'drop-shadow(0px 2px 2px rgba(0,0,0,0.2))' : '' }} />
+                    {item.label === "Tickets" && pendingTickets > 0 && !isActive && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-[#1a1a1a]" />
+                    )}
+                  </div>
+                  <span className={`text-[9px] whitespace-nowrap font-bold tracking-wide transition-all duration-400 mt-1.5 ${isActive ? 'text-slate-900 dark:text-white translate-y-0 opacity-100' : 'text-slate-500 dark:text-slate-400 opacity-80'}`}>
+                    {item.label === "Transacciones" ? "Transacc." : item.label}
+                  </span>
+                  {/* Indicator Dot */}
+                  <div className={`absolute -bottom-1 w-1 h-1 rounded-full bg-slate-900 dark:bg-white transition-all duration-400 ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`} />
+                </div>
+              </button>
+            );
+          })}
+          
           <button
-            key={idx}
-            onClick={() => setActiveTab(item.label)}
-            className={`flex flex-col items-center gap-1 p-2 min-w-[70px] rounded-xl transition-all ${
-              activeTab === item.label 
-                ? "text-emerald-500" 
-                : "text-slate-400 dark:text-slate-500"
-            }`}
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="relative flex flex-col items-center justify-center w-[20%] h-16 group"
           >
-            <item.icon className="w-5 h-5" />
-            <span className="text-[9px] font-medium">{item.label}</span>
+            <div className="flex flex-col items-center justify-center transition-all duration-400 ease-out h-full w-full relative">
+              <div className={`w-10 h-10 rounded-[0.9rem] flex items-center justify-center transition-all duration-400 relative z-10 ${isMobileMenuOpen ? 'bg-gradient-to-br from-slate-700 to-slate-900 dark:from-white dark:to-slate-200 text-white dark:text-slate-900 shadow-xl shadow-black/20 dark:shadow-white/20 scale-110 -translate-y-1' : 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/5 border border-slate-200/50 dark:border-white/5'}`}>
+                <MoreHorizontal className={`w-5 h-5 transition-transform duration-400 ${isMobileMenuOpen ? 'rotate-90' : ''}`} style={{ filter: isMobileMenuOpen ? 'drop-shadow(0px 2px 2px rgba(0,0,0,0.2))' : '' }} />
+              </div>
+              <span className={`text-[9px] font-bold tracking-wide transition-all duration-400 mt-1.5 ${isMobileMenuOpen ? 'text-slate-900 dark:text-white translate-y-0 opacity-100' : 'text-slate-500 dark:text-slate-400 opacity-80'}`}>
+                Más
+              </span>
+              {/* Indicator Dot */}
+              <div className={`absolute -bottom-1 w-1 h-1 rounded-full bg-slate-900 dark:bg-white transition-all duration-400 ${isMobileMenuOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`} />
+            </div>
           </button>
-        ))}
-      </nav>
+        </nav>
+      </div>
 
       {/* Main Content Area */}
       <div className="lg:pl-64 min-h-screen">
@@ -457,9 +563,11 @@ export default function AdminDashboard() {
           {activeTab === "Usuarios" && <UserManagement />}
           {activeTab === "Transacciones" && <TransactionManagement />}
           {activeTab === "Tickets" && <TicketManagement />}
+          {activeTab === "Envíos" && <TaskSubmissionsManagement />}
           {activeTab === "Sistema" && <SystemManagement />}
           {activeTab === "Tareas" && <TaskManagement />}
           {activeTab === "Cursos" && <CourseManagement />}
+          {activeTab === "Lógica App" && <AppLogicProjection />}
           {activeTab === "Planes" && (
             <div className="space-y-12 pb-20">
               <section>

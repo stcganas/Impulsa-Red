@@ -8,7 +8,9 @@ export default function UserPlanView() {
   const { user } = useUser();
   const { plans, features, getUserFeature } = useFeatures();
 
-  const currentPlan = plans.find(p => p.id === user?.plan_id);
+  const currentPlan = plans.find(p => p.id === user?.plan_id) || 
+                      plans.find(p => p.name.toLowerCase() === (user?.plan || '').toLowerCase()) ||
+                      (user?.plan ? { id: 'custom', name: user.plan, level: 2, price: 0, description: 'Plan de usuario activo.' } : null);
 
   if (!currentPlan) return null;
 

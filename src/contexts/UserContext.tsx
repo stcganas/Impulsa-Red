@@ -18,6 +18,11 @@ export interface User {
   phone?: string;
   address?: string;
   avatar_url?: string;
+  birth_date?: string;
+  neighborhood?: string;
+  nequi_number?: string;
+  document_url?: string;
+  document_back_url?: string;
   is_tasks_active?: boolean;
   task_start_date?: string;
   task_end_date?: string;
@@ -26,6 +31,9 @@ export interface User {
   compliance_score?: number;
   trust_score?: number;
   leader_level?: string;
+  current_streak?: number;
+  longest_streak?: number;
+  badges?: any[];
 }
 
 interface UserContextType {

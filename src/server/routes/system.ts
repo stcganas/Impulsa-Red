@@ -42,7 +42,13 @@ export function systemRoutes(services: any) {
       
       const settings: Record<string, any> = {};
       data.forEach(s => {
-        settings[s.key] = s.value;
+        try {
+          // Attempt to parse JSON (for booleans, numbers, objects)
+          // If it's a simple string, it might fail or stay as string if not quoted
+          settings[s.key] = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+        } catch (e) {
+          settings[s.key] = s.value;
+        }
       });
       
       console.log("Settings fetched:", settings);

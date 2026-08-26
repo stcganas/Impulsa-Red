@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
 import { useSettings } from "../contexts/SettingsContext";
+import { useNotifications } from "../contexts/NotificationContext";
 import { supabase } from "../lib/supabase";
 
 interface Plan {
@@ -20,6 +21,7 @@ export default function PlanSelection() {
   const navigate = useNavigate();
   const { user, refreshUser } = useUser();
   const { settings } = useSettings();
+  const { broadcastActivity } = useNotifications();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -184,6 +186,7 @@ export default function PlanSelection() {
       }
 
       alert("¡Comprobante enviado con éxito! Un administrador revisará tu pago pronto.");
+      broadcastActivity('compró un plan');
       setIsModalOpen(false);
       navigate("/dashboard");
     } catch (error) {
@@ -274,6 +277,7 @@ export default function PlanSelection() {
                     }
 
                     alert("¡Plan adquirido con éxito usando el saldo de tu billetera!");
+                    broadcastActivity('activó un nuevo plan');
                     await refreshUser();
                     setIsModalOpen(false);
                     navigate("/dashboard");

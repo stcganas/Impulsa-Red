@@ -166,13 +166,20 @@ export function adminRoutes(services: any) {
         .select('*', { count: 'exact', head: true })
         .neq('status', 'resolved');
 
+      // Fetch Pending Submissions
+      const { count: submissionCount } = await supabase
+        .from('task_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+
       res.json({
         totalUsers: totalUsersCount || 0,
         activeUsers: activeUsersCount || 0,
         totalTransactions,
         totalVolume,
         recentActivity: recentActivity,
-        pendingTickets: ticketCount || 0
+        pendingTickets: ticketCount || 0,
+        pendingSubmissions: submissionCount || 0
       });
     } catch (error: any) {
       console.error("Error in /api/admin/dashboard-data:", error);
@@ -311,6 +318,21 @@ export function adminRoutes(services: any) {
     }
   });
 
+  // Admin: Clear All Notifications
+  router.delete('/notifications/all', authenticate, authorizeAdmin, async (req: any, res: any) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .not('id', 'is', null); // Deletes all rows safely
+
+      if (error) throw error;
+      res.json({ success: true, message: 'Todas las notificaciones han sido eliminadas' });
+    } catch (error: any) {
+      console.error("Error clearing notifications:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Admin Transactions
   router.get('/transactions', authenticate, async (req: any, res: any) => {
@@ -387,12 +409,16 @@ export function adminRoutes(services: any) {
 
 
       const { key, value } = req.body;
+      const valToSave = JSON.stringify(value);
 
       const { error: upsertError } = await supabase
         .from('settings')
-        .upsert({ key, value }, { onConflict: 'key' });
+        .upsert({ key, value: valToSave }, { onConflict: 'key' });
 
-      if (upsertError) throw upsertError;
+      if (upsertError) {
+        console.error("Supabase upsert error in settings:", upsertError);
+        throw upsertError;
+      }
 
       res.json({ success: true });
     } catch (error) {
@@ -608,23 +634,25 @@ export function adminRoutes(services: any) {
 
 
 
-      const { day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
+      const { week = 1, day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
 
       // Check if limit of 10 tasks per day is reached
       if (type === 'daily') {
         const { data: existingTasks, error: countError } = await supabase
           .from('tasks')
           .select('id')
+          .eq('week', week)
           .eq('day', day)
           .eq('type', 'daily');
         
         if (countError) throw countError;
         if (existingTasks && existingTasks.length >= 10) {
-          return res.status(400).json({ error: 'No se pueden crear más de 10 tareas para el mismo día.' });
+          return res.status(400).json({ error: 'No se pueden crear más de 10 tareas para el mismo día en esta semana.' });
         }
       }
 
-      const { data, error } = await supabase.from('tasks').insert([{ 
+      console.log('Inserting task with payload:', JSON.stringify({ 
+        week,
         day, 
         name, 
         xp, 
@@ -634,11 +662,26 @@ export function adminRoutes(services: any) {
         conditions: conditions || {},
         xp_reward: xp_reward || xp,
         is_active: is_active !== false
+      }, null, 2));
+
+      const { data, error } = await supabase.from('tasks').insert([{ 
+        week,
+        day, 
+        name, 
+        xp: Number(xp), 
+        type: type || 'daily',
+        title: title || name,
+        description,
+        conditions: conditions || {},
+        xp_reward: Number(xp_reward || xp),
+        is_active: is_active !== false
       }]).select();
+
       if (error) {
         console.error('Supabase error creating task:', JSON.stringify(error, null, 2));
-        throw error;
+        return res.status(400).json({ error: error.message, details: error });
       }
+      console.log('Task created successfully:', data);
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error creating task:', error);
@@ -661,16 +704,19 @@ export function adminRoutes(services: any) {
 
 
       const initialTasks = [
-        { day: '1', name: 'Configura tu Perfil Financiero', xp: 100, type: 'daily', description: 'Completa todos tus datos en la sección de perfil para empezar con pie derecho.', is_active: true },
-        { day: '2', name: 'Invita a tu primer Socio', xp: 200, type: 'daily', description: 'Usa tu código de referido para invitar a alguien a la plataforma.', is_active: true },
-        { day: '3', name: 'Mira el Video de Bienvenida', xp: 150, type: 'daily', description: 'Aprende los conceptos básicos de nuestra red financiera en el video introductorio.', is_active: true },
-        { day: '4', name: 'Únete al Canal de Estrategias', xp: 100, type: 'daily', description: 'Mantente al día con las últimas estrategias uniéndote a nuestro canal oficial.', is_active: true },
-        { day: '5', name: 'Comparte tu Link en Redes', xp: 150, type: 'daily', description: 'Aumenta tu alcance compartiendo tu link de invitación en tus redes sociales.', is_active: true },
-        { day: '6', name: 'Completa el Módulo 1 de Entrenamiento', xp: 250, type: 'daily', description: 'Finaliza la primera lección de nuestro curso de crecimiento financiero.', is_active: true },
-        { day: '7', name: 'Alcanza 3 Referidos Activos', xp: 500, type: 'daily', description: 'Consigue que 3 de tus invitados activen su primer plan.', is_active: true },
-        { day: '1', name: 'Invita a 5 personas esta semana', xp: 1000, type: 'weekly', description: 'Demuestra tu liderazgo invitando a 5 nuevos socios esta semana.', is_active: true },
-        { day: '1', name: 'Completa todas las tareas diarias', xp: 1500, type: 'weekly', description: 'Mantén la disciplina y completa las 7 tareas diarias de la semana.', is_active: true }
+        { day: '1', name: 'Completar Perfil', title: 'Completar Perfil', xp: 100, xp_reward: 100, type: 'PROFILE_COMPLETED', description: 'Completa todos los campos de tu perfil personal.', is_active: true, conditions: {} },
+        { day: '1', name: 'Referido Diario', title: 'Invitar 1 Socio Hoy', xp: 200, xp_reward: 200, type: 'INVITE_COUNT', description: 'Logra que una persona se registre con tu enlace hoy.', is_active: true, conditions: { value: 1 } },
+        { day: '1', name: 'Publicación Social', title: 'Compartir en Redes', xp: 150, xp_reward: 150, type: 'SHARE_ACTION', description: 'Comparte la plataforma en Facebook o Instagram.', is_active: true, conditions: { value: 1 } },
+        { day: '1', name: 'Tarea Día 1', title: 'Mira el video: Tu Primera Comisión', xp: 50, xp_reward: 50, type: 'daily', description: 'Aprende cómo ganar dinero desde el primer día.', is_active: true },
+        { day: '2', name: 'Tarea Día 2', title: 'Únete al grupo oficial de Telegram', xp: 50, xp_reward: 50, type: 'daily', description: 'Accede a las estrategias de los líderes élite.', is_active: true },
+        { day: '3', name: 'Tarea Día 3', title: 'Explora los Planes de Inversión', xp: 100, xp_reward: 100, type: 'daily', description: 'Conoce los beneficios de cada nivel de socio.', is_active: true },
+        { day: '4', name: 'Tarea Día 4', title: 'Configura tu Billetera Nequi', xp: 100, xp_reward: 100, type: 'daily', description: 'Asegúrate de poder retirar tus ganancias sin problemas.', is_active: true },
+        { day: '5', name: 'Tarea Día 5', title: 'Sube un comprobante de pago', xp: 200, xp_reward: 200, type: 'daily', description: 'Activa tu cuenta subiendo tu primer comprobante.', is_active: true },
+        { day: '1', name: 'Meta Semanal', title: 'Liderazgo: 3 Invitados en la Semana', xp: 1000, xp_reward: 1000, type: 'weekly', description: 'Construye tu base sólida con 3 socios directos.', is_active: true, conditions: { value: 3 } }
       ];
+
+      // Clear existing tasks first to avoid duplicates
+      await supabase.from('tasks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
       // Insert tasks
       const { error } = await supabase.from('tasks').insert(initialTasks);
@@ -698,19 +744,29 @@ export function adminRoutes(services: any) {
 
 
       const { id } = req.params;
-      const { day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
+      const { week = 1, day, name, xp, type, title, description, conditions, xp_reward, is_active } = req.body;
+      
+      console.log(`Updating task ${id} with payload:`, JSON.stringify(req.body, null, 2));
+
       const { data, error } = await supabase.from('tasks').update({ 
+        week,
         day, 
         name, 
-        xp, 
+        xp: Number(xp), 
         type,
-        title,
+        title: title || name,
         description,
         conditions,
-        xp_reward,
+        xp_reward: Number(xp_reward || xp),
         is_active
       }).eq('id', id).select();
-      if (error) throw error;
+
+      if (error) {
+        console.error('Supabase error updating task:', JSON.stringify(error, null, 2));
+        return res.status(400).json({ error: error.message, details: error });
+      }
+
+      console.log('Task updated successfully:', data);
       res.json({ success: true, data });
     } catch (error) {
       console.error('Error updating task:', error);
@@ -772,6 +828,29 @@ export function adminRoutes(services: any) {
     }
   });
 
+
+  router.delete('/tasks/week/:week', authenticate, authorizeAdmin, async (req: any, res: any) => {
+    try {
+      const { week } = req.params;
+      
+      // We first need to find tasks for this week to delete their user_tasks
+      const { data: tasksToDelete } = await supabase.from('tasks').select('id').eq('week', week);
+      
+      if (tasksToDelete && tasksToDelete.length > 0) {
+        const taskIds = tasksToDelete.map(t => t.id);
+        // User tasks delete automatically if CASCADE is setup, but manually deleting here is safer
+        await supabase.from('user_tasks').delete().in('task_id', taskIds);
+      }
+
+      const { error } = await supabase.from('tasks').delete().eq('week', week);
+      if (error) throw error;
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting week:', error);
+      res.status(500).json({ error: 'Error al eliminar semana', details: error });
+    }
+  });
 
   router.post('/tasks/end-week', authenticate, authorizeAdmin, async (req: any, res: any) => {
     try {
@@ -915,5 +994,152 @@ export function adminRoutes(services: any) {
       res.status(500).json({ error: 'Error al agregar tarea de castigo', details: error });
     }
   });
+
+
+  // Admin: Reset User Progress
+  const resetUserProgress = async (req: any, res: any) => {
+    try {
+      const targetUserId = req.params.id;
+      console.log(`[ADMIN] Resetting progress for user: ${targetUserId}`);
+
+      // 1. Delete associated data
+      const tablesToDeleteFrom = [
+        'user_tasks',
+        'penalty_tasks',
+        'penalized_tasks',
+        'user_courses',
+        'transactions',
+        'notifications',
+        'tickets'
+      ];
+
+      for (const table of tablesToDeleteFrom) {
+        const { error } = await supabase.from(table).delete().eq('user_id', targetUserId);
+        if (error) {
+          console.error(`Error deleting from ${table}:`, error);
+        }
+      }
+
+      // 2. Reset user profile
+      const { error: resetError } = await supabase
+        .from('users')
+        .update({
+          xp: 0,
+          level: 1,
+          percentage: 0,
+          wallet_balance: 0,
+          compliance_score: 100,
+          trust_score: 100,
+          plan: 'Básico',
+          is_tasks_active: false,
+          task_start_date: null,
+          task_end_date: null,
+          leader_level: 'Promotor',
+          inventory_status: 'Inactivo'
+        })
+        .eq('id', targetUserId);
+
+      if (resetError) throw resetError;
+
+      // 3. Notify user
+      await supabase.from('notifications').insert({
+        user_id: targetUserId,
+        title: 'Cuenta Reestablecida',
+        message: 'Tu progreso ha sido reiniciado por un administrador. Puedes comenzar de nuevo.',
+        type: 'info'
+      });
+
+      res.json({ success: true, message: 'Progreso del usuario reiniciado exitosamente' });
+    } catch (error: any) {
+      console.error('Error resetting user progress:', error);
+      res.status(500).json({ error: 'Error al reiniciar el progreso del usuario', details: error.message || error });
+    }
+  };
+
+  router.post('/users/:id/reset-progress', authenticate, authorizeAdmin, resetUserProgress);
+  router.post('/users/:id/reset-progress/', authenticate, authorizeAdmin, resetUserProgress);
+  
+  // Debug route for GET (if somehow it's being called as GET)
+  router.get('/users/:id/reset-progress', authenticate, authorizeAdmin, (req, res) => {
+    res.status(405).json({ error: 'Este endpoint requiere una petición POST, pero se recibió GET.' });
+  });
+
+  // Task Submissions - List All (Admin)
+  router.get('/task-submissions', authenticate, authorizeAdmin, async (req: any, res: any) => {
+    try {
+      const { data, error } = await supabase
+        .from('task_submissions')
+        .select(`
+          *,
+          user:user_id(name, email),
+          task:task_id(name, title, xp_reward, xp)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      res.json(data);
+    } catch (error: any) {
+      console.error('Error in GET /api/admin/task-submissions:', error);
+      res.status(500).json({ error: 'Error al obtener envíos de tareas' });
+    }
+  });
+
+  // Task Submissions - Approve/Reject
+  router.post('/task-submissions/:id/review', authenticate, authorizeAdmin, async (req: any, res: any) => {
+    try {
+      const { id } = req.params;
+      const { status, admin_feedback } = req.body; // 'approved' or 'rejected'
+
+      if (!['approved', 'rejected'].includes(status)) {
+        return res.status(400).json({ error: 'Estado inválido. Debe ser approved o rejected.' });
+      }
+
+      // 1. Get submission
+      const { data: submission, error: subError } = await supabase
+        .from('task_submissions')
+        .select('*, task:task_id(*)')
+        .eq('id', id)
+        .single();
+
+      if (subError || !submission) return res.status(404).json({ error: 'Envío no encontrado' });
+
+      // 2. Update submission
+      const { error: updateSubError } = await supabase
+        .from('task_submissions')
+        .update({ status, admin_feedback, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (updateSubError) throw updateSubError;
+
+      // 3. Update user_tasks
+      const readyToClaim = status === 'approved';
+      const { error: utError } = await supabase
+        .from('user_tasks')
+        .update({ 
+          status: status === 'approved' ? 'completed' : 'active',
+          ready_to_claim: readyToClaim 
+        })
+        .eq('user_id', submission.user_id)
+        .eq('task_id', submission.task_id);
+
+      if (utError) throw utError;
+
+      // 4. Notify user
+      await sendNotification({
+        userId: submission.user_id,
+        title: status === 'approved' ? 'Tarea Aprobada' : 'Tarea Rechazada',
+        message: status === 'approved' 
+          ? `Tu envío para la tarea "${submission.task?.title || submission.task?.name}" ha sido aprobado. ¡Ya puedes reclamar tu recompensa!`
+          : `Tu envío para la tarea "${submission.task?.title || submission.task?.name}" ha sido rechazado.${admin_feedback ? ` Motivo: ${admin_feedback}` : ''}`,
+        type: status === 'approved' ? 'success' : 'warning'
+      });
+
+      res.json({ success: true, status });
+    } catch (error: any) {
+      console.error('Error in POST /api/admin/task-submissions/:id/review:', error);
+      res.status(500).json({ error: 'Error al revisar el envío de tarea' });
+    }
+  });
+
   return router;
 }

@@ -7,34 +7,29 @@
   </head>
   <body>
     <script>
-      window.onerror = function(message, source, lineno, colno, error) {
-        const errorDiv = document.createElement('div');
-        errorDiv.style.position = 'fixed';
-        errorDiv.style.top = '0';
-        errorDiv.style.left = '0';
-        errorDiv.style.width = '100%';
-        errorDiv.style.background = 'red';
-        errorDiv.style.color = 'white';
-        errorDiv.style.padding = '10px';
-        errorDiv.style.zIndex = '9999';
-        errorDiv.style.fontSize = '12px';
-        errorDiv.innerHTML = 'Error: ' + message + ' at ' + source + ':' + lineno;
-        document.body.appendChild(errorDiv);
-      };
-      window.onunhandledrejection = function(event) {
-        const errorDiv = document.createElement('div');
-        errorDiv.style.position = 'fixed';
-        errorDiv.style.bottom = '0';
-        errorDiv.style.left = '0';
-        errorDiv.style.width = '100%';
-        errorDiv.style.background = 'orange';
-        errorDiv.style.color = 'black';
-        errorDiv.style.padding = '10px';
-        errorDiv.style.zIndex = '9999';
-        errorDiv.style.fontSize = '12px';
-        errorDiv.innerHTML = 'Promise Rejection: ' + event.reason;
-        document.body.appendChild(errorDiv);
-      };
+      // Suppress benign WebSocket / Vite HMR errors in development
+      window.addEventListener('unhandledrejection', function(event) {
+        var reasonStr = event.reason ? (event.reason.message || String(event.reason)) : '';
+        if (
+          reasonStr.indexOf('WebSocket') !== -1 ||
+          reasonStr.indexOf('closed without opened') !== -1 ||
+          reasonStr.indexOf('failed to connect to websocket') !== -1
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('error', function(event) {
+        var msg = event.message || '';
+        if (
+          msg.indexOf('WebSocket') !== -1 ||
+          msg.indexOf('closed without opened') !== -1 ||
+          msg.indexOf('failed to connect to websocket') !== -1
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      });
     </script>
     <div id="root">
       <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; background: #0f172a; color: white;">

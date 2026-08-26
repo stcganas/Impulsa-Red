@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Search, Loader2, Trash2, Edit2, Play, Pause, ChevronDown, ChevronUp, Mail, Phone, MapPin, Calendar, Award, CheckSquare, Wallet, Users, Hash, Shield, X, AlertTriangle, Plus } from 'lucide-react';
+import { Search, Loader2, Trash2, Edit2, Play, Pause, ChevronDown, ChevronUp, Mail, Phone, MapPin, Calendar, Award, CheckSquare, Wallet, Users, Hash, Shield, X, AlertTriangle, Plus, RotateCcw } from 'lucide-react';
 
 interface UserData {
   id: string;
@@ -15,6 +15,8 @@ interface UserData {
   phone?: string;
   address?: string;
   avatar_url?: string;
+  document_url?: string;
+  document_back_url?: string;
   completedTasks?: number;
   walletBalance?: number;
   referralCount?: number;
@@ -171,6 +173,54 @@ export default function UserManagement() {
     } catch (error: any) {
       console.error(`Error performing ${action}:`, error);
       alert(error.message || 'Error al realizar la acción');
+    }
+  };
+
+  const handleResetProgress = async (userId: string) => {
+    if (!confirm('¿Estás SEGURO de que deseas REINICIAR el progreso de este usuario? Esto eliminará todas sus tareas completadas, transacciones, notificaciones y pondrá su balance y XP en cero.')) {
+      return;
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session');
+
+      console.log(`[DEBUG] Attempting POST reset-progress for user: ${userId}`);
+      const response = await fetch(`/api/admin/users/${userId}/reset-progress`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log(`[DEBUG] Reset-progress status: ${response.status}`);
+      const contentType = response.headers.get('content-type');
+      
+      if (!response.ok) {
+        let errorMessage = `Error ${response.status}`;
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.details || errorMessage;
+          } else {
+            const textError = await response.text();
+            console.error('[DEBUG] Non-JSON error:', textError);
+            errorMessage = `Ruta de API no encontrada o error de servidor: ${response.status}`;
+          }
+        } catch (e) {
+          errorMessage = `Error al procesar respuesta del servidor (${response.status})`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      console.log('[DEBUG] Reset-progress success:', result);
+      alert('El progreso del usuario ha sido reiniciado correctamente.');
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error resetting progress:', error);
+      alert(error.message || 'Error al reiniciar el progreso');
     }
   };
 
@@ -416,6 +466,37 @@ export default function UserManagement() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Document Verification */}
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Documentos de Identidad</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Frente</p>
+                          {user.document_url ? (
+                            <a href={user.document_url} target="_blank" rel="noreferrer" className="block aspect-[3/2] rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 group">
+                              <img src={user.document_url} alt="Frente Documento" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                            </a>
+                          ) : (
+                            <div className="aspect-[3/2] rounded-lg bg-slate-100 dark:bg-white/5 border border-dashed border-slate-200 dark:border-white/10 flex items-center justify-center">
+                              <span className="text-[9px] text-slate-400 font-bold">No cargado</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Reverso</p>
+                          {user.document_back_url ? (
+                            <a href={user.document_back_url} target="_blank" rel="noreferrer" className="block aspect-[3/2] rounded-lg overflow-hidden border border-slate-200 dark:border-white/10 group">
+                              <img src={user.document_back_url} alt="Reverso Documento" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                            </a>
+                          ) : (
+                            <div className="aspect-[3/2] rounded-lg bg-slate-100 dark:bg-white/5 border border-dashed border-slate-200 dark:border-white/10 flex items-center justify-center">
+                              <span className="text-[9px] text-slate-400 font-bold">No cargado</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* User Tasks */}
@@ -502,6 +583,14 @@ export default function UserManagement() {
                       ) : (
                         <><Play className="w-4 h-4 text-emerald-500 dark:text-emerald-400" /> Activar</>
                       )}
+                    </button>
+
+                    <button 
+                      onClick={() => handleResetProgress(user.id)} 
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 rounded-lg text-sm font-medium transition-colors"
+                      title="Reiniciar Progreso (Cero Actividades)"
+                    >
+                      <RotateCcw className="w-4 h-4" /> Reiniciar Progreso
                     </button>
                     
                     <button 

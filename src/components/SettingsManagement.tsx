@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useSettings } from '../contexts/SettingsContext';
-import { Loader2, CheckCircle, Image as ImageIcon, Upload, DollarSign, Percent, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, CheckCircle, Image as ImageIcon, Upload, DollarSign, Percent, Settings as SettingsIcon, Zap } from 'lucide-react';
 
 export default function SettingsManagement() {
   const { settings, refreshSettings } = useSettings();
@@ -14,7 +14,8 @@ export default function SettingsManagement() {
     referral_percentage: 10,
     min_withdrawal: 50000,
     plan_price: 150000,
-    maintenance_mode: false
+    maintenance_mode: false,
+    double_xp_active: false
   });
 
   useEffect(() => {
@@ -23,7 +24,8 @@ export default function SettingsManagement() {
       referral_percentage: settings.referral_percentage || 10,
       min_withdrawal: settings.min_withdrawal || 50000,
       plan_price: settings.plan_price || 150000,
-      maintenance_mode: settings.maintenance_mode === true
+      maintenance_mode: settings.maintenance_mode === true,
+      double_xp_active: settings.double_xp_active === true
     });
   }, [settings]);
 
@@ -110,6 +112,7 @@ export default function SettingsManagement() {
       updates.push({ key: 'min_withdrawal', value: formData.min_withdrawal });
       updates.push({ key: 'plan_price', value: formData.plan_price });
       updates.push({ key: 'maintenance_mode', value: formData.maintenance_mode });
+      updates.push({ key: 'double_xp_active', value: formData.double_xp_active });
 
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("No session found");
@@ -267,6 +270,73 @@ export default function SettingsManagement() {
               />
               <p className="text-xs text-slate-500 mt-1">Costo de la suscripción a la plataforma.</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-[#111] rounded-3xl border border-slate-200 dark:border-white/5 overflow-hidden shadow-sm">
+        <div className="p-6 border-b border-slate-100 dark:border-white/5">
+          <h3 className="font-bold text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+            <Zap className="w-5 h-5 text-purple-500" />
+            Eventos y Bonificaciones
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Configura eventos temporales para incentivar a los usuarios.
+          </p>
+        </div>
+        
+        <div className="p-6">
+          <div className="flex items-center justify-between p-4 bg-purple-50 dark:bg-purple-500/5 rounded-2xl border border-purple-200 dark:border-purple-500/20">
+            <div>
+              <p className="font-bold text-purple-900 dark:text-purple-300">Evento de Doble XP (XP x2)</p>
+              <p className="text-xs text-purple-700/70 dark:text-purple-400/70 mt-1">
+                Al activar esto, todas las tareas otorgarán el doble de experiencia (XP). Ideal para fines de semana.
+              </p>
+            </div>
+            <button 
+              onClick={() => setFormData({...formData, double_xp_active: !formData.double_xp_active})}
+              className={`w-14 h-7 rounded-full transition-all relative shrink-0 ${formData.double_xp_active ? 'bg-purple-500' : 'bg-slate-200 dark:bg-slate-700'}`}
+            >
+              <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${formData.double_xp_active ? 'left-8' : 'left-1'}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Gateways */}
+      <div className="bg-white dark:bg-[#111] rounded-3xl border border-slate-200 dark:border-white/5 overflow-hidden shadow-sm">
+        <div className="p-6 border-b border-slate-100 dark:border-white/5">
+          <h3 className="font-bold text-lg flex items-center gap-2 text-slate-900 dark:text-white">
+            <DollarSign className="w-5 h-5 text-blue-500" />
+            Integraciones de Pago (Próximamente)
+          </h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Configura las pasarelas para automatizar compras de planes y retiros.
+          </p>
+        </div>
+        
+        <div className="p-6 space-y-4 opacity-75 grayscale pointer-events-none">
+          <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white">Stripe / Wompi</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Automatiza la compra de planes y pagos con tarjeta.
+              </p>
+            </div>
+            <button className="px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-500 rounded-lg text-sm font-bold">
+              Configurar Keys
+            </button>
+          </div>
+          <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-white/5 rounded-2xl border border-slate-200 dark:border-white/10">
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white">API de Retiros (Bancos/Crypto)</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Automatiza el pago a los usuarios cuando soliciten retiro.
+              </p>
+            </div>
+            <button className="px-4 py-2 bg-slate-200 dark:bg-slate-800 text-slate-500 rounded-lg text-sm font-bold">
+              Configurar Keys
+            </button>
           </div>
         </div>
       </div>

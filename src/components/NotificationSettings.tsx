@@ -18,18 +18,30 @@ const NotificationSettings: React.FC = () => {
           </div>
         </div>
         
-        <button
-          onClick={() => updateConfig({ enabled: !config.enabled })}
-          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none ${
-            config.enabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
-          }`}
-        >
-          <span
-            className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-              config.enabled ? 'translate-x-6' : 'translate-x-1'
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => updateConfig({ enabled: !config.enabled })}
+            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 focus:outline-none shadow-inner ${
+              config.enabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'
             }`}
-          />
-        </button>
+          >
+            <span className="sr-only">Toggle notifications</span>
+            <span
+              className={`flex items-center justify-center h-6 w-6 transform rounded-full bg-white shadow-md transition-all duration-300 ${
+                config.enabled ? 'translate-x-7' : 'translate-x-1'
+              }`}
+            >
+              {config.enabled ? (
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+              ) : (
+                <div className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
+              )}
+            </span>
+          </button>
+          <span className={`text-xs font-bold transition-colors duration-300 ${config.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}>
+            {config.enabled ? 'ACTIVADO' : 'APAGADO'}
+          </span>
+        </div>
       </div>
 
       <div className="space-y-6">

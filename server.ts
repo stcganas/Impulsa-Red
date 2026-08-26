@@ -112,6 +112,17 @@ if (supabaseUrl && supabaseServiceKey) {
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS invite_whatsapp_message text;
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_reset_at timestamp with time zone;
       ALTER TABLE public.users ADD COLUMN IF NOT EXISTS push_token text;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS birth_date date;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS neighborhood text;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nequi_number text;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS document_url text;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS document_back_url text;
+      
+      -- Phase 3: Gamification & Retention Columns
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS current_streak integer DEFAULT 0;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS longest_streak integer DEFAULT 0;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS last_task_date timestamp with time zone;
+      ALTER TABLE public.users ADD COLUMN IF NOT EXISTS badges jsonb DEFAULT '[]'::jsonb;
       
       CREATE TABLE IF NOT EXISTS public.events (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -121,6 +132,17 @@ if (supabaseUrl && supabaseServiceKey) {
         metadata jsonb DEFAULT '{}'::jsonb,
         created_at timestamp with time zone DEFAULT now()
       );
+
+      CREATE TABLE IF NOT EXISTS public.conversion_events (
+        id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+        referral_code text,
+        event_type text NOT NULL,
+        metadata jsonb DEFAULT '{}'::jsonb,
+        created_at timestamp with time zone DEFAULT now()
+      );
+      ALTER TABLE public.conversion_events ENABLE ROW LEVEL SECURITY;
+      DROP POLICY IF EXISTS "Enable all access for conversion_events" ON public.conversion_events;
+      CREATE POLICY "Enable all access for conversion_events" ON public.conversion_events FOR ALL USING (true) WITH CHECK (true);
 
       CREATE TABLE IF NOT EXISTS public.tasks (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -158,6 +180,23 @@ if (supabaseUrl && supabaseServiceKey) {
       ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS completed boolean DEFAULT false;
       ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS ready_to_claim boolean DEFAULT false;
       ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS completed_at timestamp with time zone;
+      ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS reward_claimed boolean DEFAULT false;
+      ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS status text DEFAULT 'active';
+      
+      CREATE TABLE IF NOT EXISTS public.task_submissions (
+        id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+        user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+        task_id uuid REFERENCES public.tasks(id) ON DELETE CASCADE,
+        evidence_url text,
+        notes text,
+        status text DEFAULT 'pending',
+        reviewed_at timestamp with time zone,
+        reviewed_by uuid REFERENCES auth.users(id),
+        rejection_reason text,
+        created_at timestamp with time zone DEFAULT now()
+      );
+
+      ALTER TABLE public.user_tasks ADD COLUMN IF NOT EXISTS submission_id uuid REFERENCES public.task_submissions(id) ON DELETE SET NULL;
       
       -- Feature System Tables
       CREATE TABLE IF NOT EXISTS public.plans (
@@ -291,6 +330,7 @@ if (supabaseUrl && supabaseServiceKey) {
       
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS type text DEFAULT 'daily';
       ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS day text DEFAULT '1';
+      ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS requires_evidence boolean DEFAULT true;
 
       CREATE TABLE IF NOT EXISTS public.settings (
         id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -372,6 +412,36 @@ if (supabaseUrl && supabaseServiceKey) {
         FOR DELETE
         TO authenticated
         USING (bucket_id = 'app-assets' AND owner = auth.uid());
+
+      -- Avatars Bucket Policies
+      DROP POLICY IF EXISTS "Public Access to avatars" ON storage.objects;
+      CREATE POLICY "Public Access to avatars" ON storage.objects
+        FOR SELECT
+        USING (bucket_id = 'avatars');
+
+      DROP POLICY IF EXISTS "Authenticated users can upload to avatars" ON storage.objects;
+      CREATE POLICY "Authenticated users can upload to avatars" ON storage.objects
+        FOR INSERT
+        TO authenticated
+        WITH CHECK (bucket_id = 'avatars');
+
+      DROP POLICY IF EXISTS "Authenticated users can update their uploads in avatars" ON storage.objects;
+      CREATE POLICY "Authenticated users can update their uploads in avatars" ON storage.objects
+        FOR UPDATE
+        TO authenticated
+        USING (bucket_id = 'avatars'); -- Note: allowed update for any authenticated for simplicity in this dev phase
+
+      -- Receipts Bucket Policies
+      DROP POLICY IF EXISTS "Public Access to receipts" ON storage.objects;
+      CREATE POLICY "Public Access to receipts" ON storage.objects
+        FOR SELECT
+        USING (bucket_id = 'receipts');
+
+      DROP POLICY IF EXISTS "Authenticated users can upload to receipts" ON storage.objects;
+      CREATE POLICY "Authenticated users can upload to receipts" ON storage.objects
+        FOR INSERT
+        TO authenticated
+        WITH CHECK (bucket_id = 'receipts');
     `;
     supabase.rpc('exec_sql', { sql: addTaskColumnsSql })
       .then(({ error }: any) => {
@@ -394,11 +464,15 @@ async function startServer() {
     const PORT = 3000;
 
     app.use(cors());
-    app.use(express.json({ limit: '10mb' }));
-    app.use(express.urlencoded({ limit: '10mb', extended: true }));
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
     // Logger middleware
     app.use((req, res, next) => {
+      if (req.url.includes('upload-image') || req.url.includes('reset-progress')) {
+        console.log(`[DEBUG API] Request: ${req.method} ${req.url}`);
+        console.log(`[DEBUG API] Headers: ${JSON.stringify(req.headers)}`);
+      }
       console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
       next();
     });
@@ -556,6 +630,13 @@ async function startServer() {
             break;
           case 'PROFILE_COMPLETED':
             if (event.event_type === 'PROFILE_COMPLETED') {
+              applies = true;
+              progressIncrement = 1;
+              required = 1;
+            }
+            break;
+          case 'VIRAL_ENGINE_CONFIGURED':
+            if (event.event_type === 'VIRAL_ENGINE_CONFIGURED') {
               applies = true;
               progressIncrement = 1;
               required = 1;

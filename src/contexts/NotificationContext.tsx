@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useUser } from './UserContext';
+import { useSettings } from './SettingsContext';
 import { toast } from 'sonner';
 import OneSignal from 'react-onesignal';
 
@@ -21,6 +22,13 @@ interface SocialActivity {
   time: string;
 }
 
+interface ActivityConfig {
+  enabled: boolean;
+  interval: number;
+  maxVisible: number;
+  position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
+}
+
 interface NotificationContextType {
   // System Notifications
   notifications: SystemNotification[];
@@ -31,6 +39,8 @@ interface NotificationContextType {
   
   // Social/Live Activities
   liveActivities: SocialActivity[];
+  broadcastActivity: (action: string) => void;
+  removeLiveNotification: (id: string) => void;
   
   // Permission (Legacy/Compatibility)
   permission: NotificationPermission;
@@ -39,21 +49,230 @@ interface NotificationContextType {
   tokenError: string | null;
   
   // Legacy compatibility for LiveActivityNotifications component
-  config: {
-    enabled: boolean;
-    position: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
-  };
+  config: ActivityConfig;
+  updateConfig: (patch: Partial<ActivityConfig>) => void;
   liveNotifications: SocialActivity[];
 }
 
+// ... (rest of imports)
+
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+
+const defaultActivityConfig: ActivityConfig = {
+  enabled: true,
+  interval: 15,
+  maxVisible: 3,
+  position: 'bottom-left'
+};
+
+const ACTIONS = [
+  'acaba de unirse',
+  'activó un nuevo plan',
+  'completó su primera tarea',
+  'invitó a 3 personas',
+  'retiró ganancias'
+];
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
+  const { settings, refreshSettings } = useSettings();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [liveActivities] = useState<SocialActivity[]>([]);
+  
+  const [localConfig, setLocalConfig] = useState<ActivityConfig | null>(null);
+
+  const config = React.useMemo(() => localConfig || {
+    enabled: settings?.activity_enabled !== undefined ? settings.activity_enabled : true,
+    interval: settings?.activity_interval !== undefined ? settings.activity_interval : 15,
+    maxVisible: settings?.activity_max_visible !== undefined ? settings.activity_max_visible : 3,
+    position: settings?.activity_position !== undefined ? settings.activity_position : 'bottom-left'
+  }, [settings, localConfig]);
+
+  const [liveActivities, setLiveActivities] = useState<SocialActivity[]>([]);
+  const activityQueueRef = React.useRef<SocialActivity[]>([]);
+  const [simulatedUsers, setSimulatedUsers] = useState<any[]>([]);
+
+  // Seed simulated users and fetch them
+  useEffect(() => {
+    async function initSimulatedUsers() {
+      const { data: existing, error } = await supabase.from('simulated_users').select('*');
+      
+      if (error || (existing && existing.length === 0)) {
+        // Seed if empty
+        const names = [
+          'Carlos M.', 'Ana G.', 'Luis P.', 'María R.', 'Javier T.', 'Elena F.', 'Roberto S.', 'Diego H.', 'Sofia C.', 'Mateo V.',
+          'Valentina L.', 'Andrés B.', 'Camila D.', 'Pedro P.', 'Laura M.', 'Carmen T.', 'Ricardo G.', 'Isabel W.', 'Fernando K.', 'Monica J.'
+        ];
+        
+        const newUsers = names.map(name => ({
+          name,
+          avatar_url: `https://i.pravatar.cc/150?u=${encodeURIComponent(name)}`
+        }));
+        
+        await supabase.from('simulated_users').insert(newUsers);
+        setSimulatedUsers(newUsers);
+      } else {
+        setSimulatedUsers(existing || []);
+      }
+    }
+    
+    initSimulatedUsers();
+  }, []);
+
+  // Sync local config with settings if settings change
+  useEffect(() => {
+    setLocalConfig(null);
+  }, [settings]);
+
+  const updateConfig = async (patch: Partial<ActivityConfig>) => {
+    // Optimistic UI update
+    setLocalConfig({ ...config, ...patch });
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      
+      const updates = [];
+      if ('enabled' in patch) updates.push({ key: 'activity_enabled', value: patch.enabled });
+      if ('interval' in patch) updates.push({ key: 'activity_interval', value: patch.interval });
+      if ('maxVisible' in patch) updates.push({ key: 'activity_max_visible', value: patch.maxVisible });
+      if ('position' in patch) updates.push({ key: 'activity_position', value: patch.position });
+
+      for (const update of updates) {
+        const response = await fetch('/api/admin/app-config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(update)
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to update config on server');
+        }
+      }
+      
+      await refreshSettings();
+      toast.success("Configuración de notificaciones guardada exitosamente.");
+    } catch(err) {
+      console.error("Error updates activity config:", err);
+      // Revert on error
+      setLocalConfig(null);
+      toast.error("Error al guardar la configuración.");
+    }
+  };
+// ... rest of the file
+
+  // Listen to real activity broadcasts
+  useEffect(() => {
+    const channel = supabase.channel('public_activity', {
+      config: {
+        broadcast: { ack: false },
+      },
+    });
+
+    channel.on('broadcast', { event: 'user_action' }, (payload) => {
+      if (payload.payload) {
+        activityQueueRef.current.push(payload.payload as SocialActivity);
+      }
+    }).subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const [tick, setTick] = useState(0);
+  const lastProcessedTickRef = React.useRef(-1);
+
+  // Frequency ticker
+  useEffect(() => {
+    if (!config.enabled) {
+      setTick(0);
+      lastProcessedTickRef.current = -1;
+      setLiveActivities([]);
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setTick(t => t + 1);
+    }, config.interval * 1000);
+
+    // Initial tick after a short delay
+    const initialTimeout = setTimeout(() => setTick(t => t + 1), 2000);
+
+    return () => {
+      clearInterval(intervalId);
+      clearTimeout(initialTimeout);
+    };
+  }, [config.enabled, config.interval]);
+
+  // Process activity on each tick
+  useEffect(() => {
+    if (tick === 0 || !config.enabled || tick === lastProcessedTickRef.current) return;
+    lastProcessedTickRef.current = tick;
+
+    let nextActivity: SocialActivity;
+
+    if (activityQueueRef.current.length > 0) {
+      nextActivity = activityQueueRef.current.shift()!;
+    } else {
+      // Simulated fallback
+      if (simulatedUsers.length === 0) return;
+      const randomUser = simulatedUsers[Math.floor(Math.random() * simulatedUsers.length)];
+      const randomAction = ACTIONS[Math.floor(Math.random() * ACTIONS.length)];
+      const uniqueId = `sim-${crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now()}-${tick}`;
+      nextActivity = {
+        id: uniqueId,
+        user: randomUser.name,
+        avatar: randomUser.avatar_url,
+        action: randomAction,
+        time: 'hace unos momentos'
+      };
+    }
+
+    setLiveActivities(current => {
+      // Strict deduplication
+      if (current.some(a => a.id === nextActivity.id)) return current;
+      return [nextActivity, ...current].slice(0, config.maxVisible);
+    });
+    
+    // Auto-hide
+    const hideTimeout = setTimeout(() => {
+      setLiveActivities(curr => curr.filter(a => a.id !== nextActivity.id));
+    }, Math.max(5000, (config.interval * 1000) - 1000));
+
+    return () => clearTimeout(hideTimeout);
+  }, [tick, config.enabled, config.maxVisible, config.interval, simulatedUsers]);
+
+  const removeLiveNotification = useCallback((id: string) => {
+    setLiveActivities(curr => curr.filter(a => a.id !== id));
+  }, []);
+
+  const broadcastActivity = useCallback((action: string) => {
+    if (!user) return;
+    const userName = user.user_metadata?.first_name || user.email?.split('@')[0] || 'Un usuario';
+    const payload: SocialActivity = {
+      id: `real-${crypto.randomUUID?.() || Math.random().toString(36).substring(2) + Date.now()}`,
+      user: userName,
+      action,
+      time: 'justo ahora'
+    };
+    
+    // Add to local queue immediately
+    activityQueueRef.current.push(payload);
+    
+    // Broadcast to others
+    const channel = supabase.channel('public_activity');
+    channel.send({
+      type: 'broadcast',
+      event: 'user_action',
+      payload
+    }).catch(console.error);
+  }, [user]);
+
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [token, setToken] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -124,11 +343,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     syncUser();
   }, [user?.id, isOneSignalInitialized]);
-
-  const [config] = useState({
-    enabled: true,
-    position: 'top-right' as const
-  });
 
   const fetchHistory = useCallback(async () => {
     if (!user?.id) return;
@@ -239,6 +453,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       token,
       tokenError,
       config,
+      updateConfig,
+      broadcastActivity,
+      removeLiveNotification,
       liveNotifications: liveActivities
     }}>
       {children}

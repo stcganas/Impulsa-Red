@@ -7,7 +7,7 @@ export default function GlobalNotificationSender() {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  
+
   const [formData, setFormData] = useState({
     title: '',
     message: '',
@@ -52,6 +52,7 @@ export default function GlobalNotificationSender() {
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-8 shadow-sm border border-slate-200 dark:border-white/5">
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-8">
         <div className="w-14 h-14 rounded-2xl bg-blue-600/10 flex items-center justify-center shrink-0">
           <Bell className="w-7 h-7 text-blue-600 dark:text-blue-400" />
@@ -145,20 +146,24 @@ export default function GlobalNotificationSender() {
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={loading || !formData.title || !formData.message}
-          className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <>
-              <Send className="w-5 h-5" />
-              Enviar Notificación
-            </>
-          )}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-4 mt-8">
+          <motion.button
+            whileHover={{ scale: loading ? 1 : 1.02 }}
+            whileTap={{ scale: loading ? 1 : 0.95 }}
+            type="submit"
+            disabled={loading || !formData.title || !formData.message}
+            className="w-full sm:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                <Send className="w-5 h-5" />
+                Enviar Notificación
+              </>
+            )}
+          </motion.button>
+        </div>
       </form>
     </div>
   );

@@ -7,14 +7,21 @@ export function uploadRoutes(services: any) {
 
 
   // Upload Image
-  router.post('/upload-image', authenticate, async (req: any, res: any) => {
+  const handleUpload = async (req: any, res: any) => {
+    console.log(`[UPLOAD API] Processing ${req.method} request for /api/upload-image`);
+    console.log(`[UPLOAD API] Headers: ${JSON.stringify(req.headers)}`);
+    console.log(`[UPLOAD API] Body keys: ${Object.keys(req.body || {})}`);
+    
     try {
-      const user = req.user;
       const { bucket, fileName, base64Data, contentType } = req.body;
       
       if (!bucket || !fileName || !base64Data) {
-         return res.status(400).json({ error: 'Missing parameters' });
+         console.warn('[UPLOAD API] Missing parameters:', { bucket: !!bucket, fileName: !!fileName, base64: !!base64Data });
+         return res.status(400).json({ error: 'Faltan parámetros obligatorios (bucket, fileName, base64Data)' });
       }
+
+      console.log(`[UPLOAD API] Bucket: ${bucket}, File: ${fileName}, Content-Type: ${contentType}`);
+      console.log(`[UPLOAD API] Base64 length: ${base64Data.length}`);
 
       // Remove data URL prefix if present
       const base64String = base64Data.replace(/^data:image\/\w+;base64,/, '');
@@ -27,17 +34,25 @@ export function uploadRoutes(services: any) {
           upsert: true
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[UPLOAD API] Supabase storage error:', error);
+        throw error;
+      }
 
       const { data: { publicUrl } } = supabase.storage
         .from(bucket)
         .getPublicUrl(fileName);
 
+      console.log(`[UPLOAD API] Success: ${publicUrl}`);
       res.json({ success: true, publicUrl });
     } catch (err: any) {
-      console.error('Upload error:', err);
-      res.status(500).json({ error: err.message });
+      console.error('[UPLOAD API] Fatal error:', err);
+      res.status(500).json({ error: 'Error del servidor al procesar la imagen', details: err.message });
     }
-  });
+  };
+
+  router.post('/upload-image', authenticate, handleUpload);
+  router.post('/upload-image/', authenticate, handleUpload);
+  
   return router;
 }

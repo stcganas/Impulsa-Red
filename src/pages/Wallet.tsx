@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "../contexts/UserContext";
+import { useNotifications } from "../contexts/NotificationContext";
 import { supabase } from "../lib/supabase";
 
 interface Transaction {
@@ -28,6 +29,7 @@ interface Transaction {
 
 export default function Wallet() {
   const { user, refreshUser } = useUser();
+  const { broadcastActivity } = useNotifications();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -127,6 +129,7 @@ export default function Wallet() {
       }
 
       setSuccess("Retiro solicitado con éxito");
+      broadcastActivity('retiró ganancias');
       setWithdrawAmount("");
       await fetchTransactions();
       await refreshUser();

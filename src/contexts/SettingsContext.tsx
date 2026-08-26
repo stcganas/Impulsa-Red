@@ -27,7 +27,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const fetchSettings = async () => {
     console.log("SettingsContext: Iniciando fetchSettings...");
     try {
-      const response = await fetch('/api/app-config').catch(err => {
+      const response = await fetch('/api/app-config?t=' + Date.now()).catch(err => {
         console.warn("Settings fetch error (network level):", err.message);
         throw new Error(`Error de red al obtener configuraciones: ${err.message}`);
       });

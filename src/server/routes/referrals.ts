@@ -150,6 +150,126 @@ export function referralsRoutes(services: any) {
   });
 
 
+  // Public endpoint to get referrer information and social proof for the viral invite landing page
+  router.get('/referrals/info/:referralCode', async (req: any, res: any) => {
+    try {
+      const { referralCode } = req.params;
+      const cleanCode = (referralCode || '').trim();
+
+      if (!cleanCode) {
+        return res.status(400).json({ error: 'Código de referido no proporcionado' });
+      }
+
+      // Fetch referrer user details by referral_code (case-insensitive)
+      let { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, name, photo_url, invite_title, invite_message, invite_banner, invite_whatsapp_message, referral_code, level, plan')
+        .ilike('referral_code', cleanCode)
+        .maybeSingle();
+
+      // If not found by referral_code, try finding by id (in case UUID was passed)
+      if (!user && cleanCode.length > 20) {
+        const { data: userById } = await supabase
+          .from('users')
+          .select('id, name, photo_url, invite_title, invite_message, invite_banner, invite_whatsapp_message, referral_code, level, plan')
+          .eq('id', cleanCode)
+          .maybeSingle();
+        if (userById) user = userById;
+      }
+
+      // If still not found, provide a fallback referrer so the invite page never crashes
+      const referrerData = user || {
+        id: 'system',
+        name: 'Líder de la Red',
+        photo_url: '',
+        invite_title: `¡Te invitan a unirte a ImpulsaRed! 🚀`,
+        invite_message: 'Empieza a generar ingresos diarios con tareas y expande tu red de afiliados.',
+        invite_banner: '',
+        invite_whatsapp_message: `🚀 Te invito a unirte a mi equipo en ImpulsaRed. ¡Gana dinero diario!`,
+        referral_code: cleanCode.toUpperCase(),
+        level: 5,
+        plan: 'Pro'
+      };
+
+      // Get joined count if user exists in DB
+      let joinedCount = 0;
+      let dailyJoins = 0;
+
+      if (user?.id) {
+        const { count: totalCount } = await supabase
+          .from('referrals')
+          .select('*', { count: 'exact', head: true })
+          .eq('referrer_id', user.id);
+        
+        joinedCount = totalCount || 0;
+
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: dayCount } = await supabase
+          .from('referrals')
+          .select('*', { count: 'exact', head: true })
+          .eq('referrer_id', user.id)
+          .gte('created_at', yesterday);
+
+        dailyJoins = dayCount || 0;
+      }
+
+      // Fetch global settings for bonuses
+      const { data: settingsData } = await supabase
+        .from('settings')
+        .select('key, value');
+
+      const settingsMap: Record<string, any> = {};
+      if (settingsData) {
+        settingsData.forEach((s: any) => {
+          settingsMap[s.key] = s.value;
+        });
+      }
+
+      return res.json({
+        success: true,
+        referrer: referrerData,
+        joinedCount,
+        dailyJoins,
+        appName: settingsMap['app_name'] || 'ImpulsaRed',
+        bonusActive: settingsMap['bonus_active'] === true || settingsMap['bonus_active'] === 'true',
+        bonusMultiplier: Number(settingsMap['bonus_multiplier']) || 2,
+        bonusExpiration: settingsMap['bonus_expiration'] || new Date(Date.now() + 86400000).toISOString()
+      });
+    } catch (error: any) {
+      console.error('Error in /api/referrals/info:', error);
+      res.status(500).json({ error: error.message || 'Error al obtener información de invitación' });
+    }
+  });
+
+  // Track conversion event anonymously
+  router.post('/referrals/track-event', async (req: any, res: any) => {
+    try {
+      const { referralCode, eventType, metadata } = req.body;
+      if (!referralCode || !eventType) {
+        return res.status(400).json({ error: 'Faltan parámetros requeridos' });
+      }
+
+      await supabase
+        .from('conversion_events')
+        .insert({
+          referral_code: referralCode,
+          event_type: eventType,
+          metadata: {
+            ...metadata,
+            ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+            userAgent: req.headers['user-agent'],
+            timestamp: new Date().toISOString()
+          }
+        });
+
+      return res.json({ success: true });
+    } catch (error: any) {
+      // Don't fail the client request if tracking table fails
+      console.warn('Track event warning:', error?.message);
+      return res.json({ success: true });
+    }
+  });
+
   // Track referral clicks
   router.post('/referrals/click', async (req, res) => {
     const { referralCode } = req.body;
@@ -236,26 +356,64 @@ export function referralsRoutes(services: any) {
 
     const user = req.user;
 
-      // Get direct referrals
+      let allMembers: any[] = [];
+      let activeDirects = 0;
+
+      // Level 1: Direct Referrals
       const { data: directReferrals } = await supabase
         .from('referrals')
         .select('referred_id')
         .eq('referrer_id', user.id);
 
-      const directIds = directReferrals?.map(r => r.referred_id) || [];
+      const level1Ids = directReferrals?.map(r => r.referred_id) || [];
       
-      let activeDirects = 0;
-      let teamMembers = [];
-
-      if (directIds.length > 0) {
-        const { data: users } = await supabase
+      if (level1Ids.length > 0) {
+        const { data: users1 } = await supabase
           .from('users')
-          .select('id, name, level, plan, status, created_at')
-          .in('id', directIds);
+          .select('id, name, email, level, plan, created_at, xp, is_tasks_active, leader_level')
+          .in('id', level1Ids);
           
-        if (users) {
-          teamMembers = users;
-          activeDirects = users.filter(u => u.plan && u.plan.toLowerCase() !== 'básico' && u.plan.toLowerCase() !== 'gratis' && u.plan.toLowerCase() !== 'free').length;
+        if (users1) {
+          allMembers.push(...users1.map(u => ({ ...u, status: u.is_tasks_active ? 'active' : 'inactive', networkLevel: 1 })));
+          activeDirects = users1.filter(u => u.plan && u.plan.toLowerCase() !== 'básico' && u.plan.toLowerCase() !== 'gratis' && u.plan.toLowerCase() !== 'free').length;
+        }
+
+        // Level 2: Indirect Referrals (Referred by Level 1)
+        const { data: level2Referrals } = await supabase
+          .from('referrals')
+          .select('referred_id, referrer_id')
+          .in('referrer_id', level1Ids);
+          
+        const level2Ids = level2Referrals?.map(r => r.referred_id) || [];
+        
+        if (level2Ids.length > 0) {
+          const { data: users2 } = await supabase
+            .from('users')
+            .select('id, name, email, level, plan, created_at, xp, is_tasks_active, leader_level')
+            .in('id', level2Ids);
+            
+          if (users2) {
+            allMembers.push(...users2.map(u => ({ ...u, status: u.is_tasks_active ? 'active' : 'inactive', networkLevel: 2 })));
+          }
+
+          // Level 3: Indirect Referrals (Referred by Level 2)
+          const { data: level3Referrals } = await supabase
+            .from('referrals')
+            .select('referred_id, referrer_id')
+            .in('referrer_id', level2Ids);
+            
+          const level3Ids = level3Referrals?.map(r => r.referred_id) || [];
+          
+          if (level3Ids.length > 0) {
+            const { data: users3 } = await supabase
+              .from('users')
+              .select('id, name, email, level, plan, created_at, xp, is_tasks_active, leader_level')
+              .in('id', level3Ids);
+              
+            if (users3) {
+              allMembers.push(...users3.map(u => ({ ...u, status: u.is_tasks_active ? 'active' : 'inactive', networkLevel: 3 })));
+            }
+          }
         }
       }
 
@@ -281,9 +439,9 @@ export function referralsRoutes(services: any) {
       res.json({
         leaderLevel,
         activeDirects,
-        totalDirects: directIds.length,
+        totalDirects: level1Ids.length,
         totalEarnings,
-        teamMembers
+        teamMembers: allMembers
       });
     } catch (error) {
       console.error('Error in /api/team/summary:', error);

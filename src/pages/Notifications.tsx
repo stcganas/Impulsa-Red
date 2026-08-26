@@ -141,6 +141,26 @@ export default function Notifications() {
     }
   };
 
+  const deleteAllNotifications = async () => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar todas tus notificaciones?")) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', user?.id);
+
+      if (error) throw error;
+      setNotifications([]);
+      sonnerToast.success('Todas las notificaciones eliminadas');
+    } catch (error) {
+      console.error('Error deleting all notifications:', error);
+      sonnerToast.error('Error al eliminar notificaciones');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'success': return <Check className="w-5 h-5 text-emerald-500" />;
@@ -164,14 +184,24 @@ export default function Notifications() {
             <h1 className="text-xl font-bold text-slate-900 dark:text-white">Notificaciones</h1>
           </div>
           
-          {notifications.some(n => !n.read) && (
-            <button 
-              onClick={markAllAsRead}
-              className="text-sm font-bold text-blue-600 hover:text-blue-700"
-            >
-              Marcar todas como leídas
-            </button>
-          )}
+          <div className="flex items-center gap-4">
+            {notifications.length > 0 && (
+              <button 
+                onClick={deleteAllNotifications}
+                className="text-sm font-bold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+              >
+                Eliminar todas
+              </button>
+            )}
+            {notifications.some(n => !n.read) && (
+              <button 
+                onClick={markAllAsRead}
+                className="text-sm font-bold text-blue-600 hover:text-blue-700"
+              >
+                Marcar leídas
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

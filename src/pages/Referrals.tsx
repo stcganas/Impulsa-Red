@@ -145,7 +145,7 @@ export default function Referrals() {
 
   const tabs = [
     { id: 'invite', label: 'Invitar', icon: <Share2 className="w-4 h-4" /> },
-    ...(getUserFeature('whatsapp_boost') ? [{ id: 'personalize', label: 'Motor Viral', icon: <Settings className="w-4 h-4" /> }] : []),
+    { id: 'personalize', label: 'Motor Viral', icon: <Zap className="w-4 h-4" /> },
     { id: 'history', label: 'Mi Red', icon: <History className="w-4 h-4" /> },
   ];
 

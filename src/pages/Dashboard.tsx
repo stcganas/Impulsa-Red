@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Trophy,
@@ -24,12 +24,25 @@ import { useTheme } from "../contexts/ThemeContext";
 import NotificationCenter from "../components/NotificationCenter";
 import UserPlanView from "../components/UserPlanView";
 import AdvancedStats from "../components/AdvancedStats";
+import OnboardingTour from "../components/OnboardingTour";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, loading, logout } = useUser();
   const { theme, toggleTheme } = useTheme();
   const { getUserFeature } = useFeatures();
+  
+  const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    // Check if the tour was completed
+    if (!loading && user) {
+      const tourCompleted = localStorage.getItem("impulsa_tour_completed");
+      if (!tourCompleted) {
+        setShowTour(true);
+      }
+    }
+  }, [user, loading]);
 
   useEffect(() => {
     if (getUserFeature('has_advanced_stats')) {
@@ -85,9 +98,18 @@ export default function Dashboard() {
   // Calculate XP needed for next level (simple formula: level * 1000)
   const xpNeeded = user.level * 1000;
   
-  const currentCommission = user.percentage;
+  const isLeaderEligible = Boolean(
+    getUserFeature('can_create_team') || 
+    user?.plan?.toLowerCase().includes('pro') || 
+    user?.plan?.toLowerCase().includes('élite') || 
+    user?.plan?.toLowerCase().includes('elite') || 
+    user?.plan?.toLowerCase().includes('avanzado') || 
+    (user?.level && user.level >= 5)
+  );
+
+  const currentCommission = user.percentage || 5;
   const progressTo70 = (currentCommission / 70) * 100;
-  const levelProgress = (user.xp / xpNeeded) * 100;
+  const levelProgress = (user.xp / (xpNeeded || 1000)) * 100;
 
   const handleLogout = async () => {
     await logout();
@@ -249,7 +271,7 @@ export default function Dashboard() {
         </motion.div>
 
         {/* Quick Actions */}
-        <div className={`grid ${getUserFeature('can_create_team') ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+        <div className={`grid ${isLeaderEligible ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
           <motion.button
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -276,7 +298,7 @@ export default function Dashboard() {
             <span className="font-bold text-sm text-slate-800 dark:text-white">Tareas</span>
           </motion.button>
 
-          {getUserFeature('can_create_team') && (
+          {isLeaderEligible && (
             <motion.button
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -371,6 +393,8 @@ export default function Dashboard() {
           </motion.div>
         )}
       </div>
+
+      {showTour && <OnboardingTour onComplete={() => setShowTour(false)} />}
     </div>
   );
 }

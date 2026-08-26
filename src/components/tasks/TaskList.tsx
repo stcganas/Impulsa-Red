@@ -4,17 +4,19 @@ import { TaskItem } from './TaskItem';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, Target } from 'lucide-react';
 
-export function TaskList({ userId }: { userId: string }) {
+export function TaskList({ userId, week, isLocked }: { userId: string, week: number, isLocked?: boolean }) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchTasks = async () => {
     try {
-      // Get all active tasks
+      // Get all active smart tasks
       const { data: activeTasks } = await supabase
         .from('tasks')
         .select('*')
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .eq('week', week)
+        .not('type', 'in', '("daily","weekly")');
 
       // Get user progress
       const { data: userTasks } = await supabase
@@ -73,7 +75,7 @@ export function TaskList({ userId }: { userId: string }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [userId]);
+  }, [userId, week]);
 
   if (loading) {
     return <div className="animate-pulse space-y-4">
@@ -87,20 +89,6 @@ export function TaskList({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Target className="w-6 h-6 text-indigo-600" />
-            Tus Tareas
-          </h2>
-          <p className="text-sm text-gray-500">Completa tareas para ganar XP y subir de nivel</p>
-        </div>
-        <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full font-medium text-sm flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
-          {completedCount} / {tasks.length} Completadas
-        </div>
-      </div>
-
       <div className="grid gap-4">
         <AnimatePresence>
           {tasks.map((task, index) => (
@@ -111,7 +99,7 @@ export function TaskList({ userId }: { userId: string }) {
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ delay: index * 0.1 }}
             >
-              <TaskItem task={task} onClaimed={fetchTasks} />
+              <TaskItem task={task} onClaimed={fetchTasks} isLocked={isLocked} index={index + 1} />
             </motion.div>
           ))}
         </AnimatePresence>

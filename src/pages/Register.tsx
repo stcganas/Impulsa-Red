@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock, User, ArrowRight } from "lucide-react";
 import { useUser } from "../contexts/UserContext";
+import { useNotifications } from "../contexts/NotificationContext";
 import Logo from "../components/Logo";
 import { supabase } from "../lib/supabase";
 import { calculatePercentage } from "../utils/levelUtils";
@@ -9,6 +10,7 @@ import { calculatePercentage } from "../utils/levelUtils";
 export default function Register() {
   const navigate = useNavigate();
   const { refreshUser, user, loading } = useUser();
+  const { broadcastActivity } = useNotifications();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -133,6 +135,7 @@ export default function Register() {
       }
       
       // The UserContext will automatically detect the auth state change
+      broadcastActivity('acaba de unirse');
       navigate("/plan-selection");
       
     } catch (err: any) {

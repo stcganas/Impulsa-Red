@@ -118,6 +118,13 @@ CREATE TABLE IF NOT EXISTS public.tickets (
     created_at timestamp with time zone DEFAULT now()
 );
 
+-- 10. Crear tabla para usuarios simulados
+CREATE TABLE IF NOT EXISTS public.simulated_users (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    avatar_url text NOT NULL
+);
+
 ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their own tickets" ON public.tickets FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert their own tickets" ON public.tickets FOR INSERT WITH CHECK (auth.uid() = user_id);
@@ -127,3 +134,6 @@ CREATE POLICY "Admins can view all tickets" ON public.tickets FOR SELECT USING (
 CREATE POLICY "Admins can update all tickets" ON public.tickets FOR UPDATE USING (
   EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'admin')
 );
+
+ALTER TABLE public.simulated_users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can view simulated users" ON public.simulated_users FOR SELECT USING (true);

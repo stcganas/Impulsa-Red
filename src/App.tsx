@@ -31,6 +31,7 @@ const Training = lazy(() => import("./pages/Training"));
 const Mentor = lazy(() => import("./pages/Mentor"));
 const Tickets = lazy(() => import("./pages/Tickets"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AppLogicProjection = lazy(() => import("./pages/admin/AppLogicProjection"));
 const Ranking = lazy(() => import("./pages/Ranking"));
 const TeamPanel = lazy(() => import("./pages/TeamPanel"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -52,8 +53,6 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: 
   const { user, loading } = useUser();
   const { isMaintenanceMode, loading: settingsLoading } = useSettings();
   
-  console.log("ProtectedRoute check:", { loading, settingsLoading, hasUser: !!user });
-
   if (loading || settingsLoading) {
     return <LoadingScreen />;
   }
@@ -66,17 +65,12 @@ const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: 
   }
 
   if (!user) {
-    console.log("ProtectedRoute: No user found, redirecting to /");
-    return <Navigate to="/" replace />;
+    return <Navigate to="/login" replace />;
   }
   
-  if (role && userRole !== role) {
-    // Allow admins to access user pages (to view profile, etc)
-    if (role === 'user' && userRole === 'admin') {
-      return <>{children}</>;
-    }
-    console.log(`ProtectedRoute: Role mismatch. Expected ${role}, got ${userRole}. Redirecting...`);
-    return <Navigate to={userRole === 'admin' ? "/admin" : "/dashboard"} replace />;
+  // If the route strictly requires admin role, non-admins go to dashboard
+  if (role === 'admin' && userRole !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
   }
   
   return <>{children}</>;
@@ -210,6 +204,9 @@ export default function App() {
                       <Route path="/forgot-password" element={<MaintenanceGuard><ForgotPassword /></MaintenanceGuard>} />
                       <Route path="/reset-password" element={<MaintenanceGuard><ResetPassword /></MaintenanceGuard>} />
                       <Route path="/invite/:referralCode" element={<InviteLandingPage />} />
+                      <Route path="/invitacion/:referralCode" element={<InviteLandingPage />} />
+                      <Route path="/i/:referralCode" element={<InviteLandingPage />} />
+                      <Route path="/r/:referralCode" element={<InviteLandingPage />} />
                       <Route path="/maintenance" element={<MaintenancePage />} />
                       <Route path="/plan-selection" element={<ProtectedRoute><PlanSelection /></ProtectedRoute>} />
                       
@@ -218,6 +215,7 @@ export default function App() {
 
                       {/* Main App */}
                       <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
+                      <Route path="/admin/logic" element={<ProtectedRoute role="admin"><AppLogicProjection /></ProtectedRoute>} />
                       
                       <Route element={<ProtectedRoute role="user"><MobileLayout /></ProtectedRoute>}>
                         <Route path="/dashboard" element={<Dashboard />} />

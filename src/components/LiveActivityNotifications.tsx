@@ -1,12 +1,19 @@
 import React from 'react';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useUser } from '../contexts/UserContext';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, Activity } from 'lucide-react';
+import { User, Activity, X } from 'lucide-react';
 
 const LiveActivityNotifications: React.FC = () => {
-  const { liveNotifications, config } = useNotifications();
+  const { liveNotifications, config, removeLiveNotification } = useNotifications();
+  const { user } = useUser();
+  const location = useLocation();
 
-  if (!config.enabled) return null;
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  const isAdminUser = user?.role === 'admin';
+
+  if (!config.enabled || isAdminRoute || isAdminUser) return null;
 
   const positionClasses = {
     'top-right': 'top-6 right-6',
@@ -24,8 +31,16 @@ const LiveActivityNotifications: React.FC = () => {
             initial={{ opacity: 0, x: config.position.includes('right') ? 50 : -50, scale: 0.9 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
-            className="pointer-events-auto w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-4 flex items-center gap-3"
+            className="pointer-events-auto w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700 p-4 flex items-center gap-3 relative group"
           >
+            <button 
+              onClick={() => removeLiveNotification(notification.id)}
+              className="absolute top-1.5 right-1.5 flex flex-col items-center gap-0.5 text-blue-500/70 hover:text-blue-600 dark:text-blue-400/70 dark:hover:text-blue-400 transition-colors"
+            >
+              <X size={16} strokeWidth={3} />
+              <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-500 dark:text-slate-400">Cerrar</span>
+            </button>
+
             <div className="relative flex-shrink-0">
               {notification.avatar ? (
                 <img 

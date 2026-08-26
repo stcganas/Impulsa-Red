@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { createClient } from '@supabase/supabase-js';
-import { sendNotification } from './notificationService';
+import { sendNotification } from './notificationService.ts';
 import dotenv from 'dotenv';
 
 dotenv.config();
